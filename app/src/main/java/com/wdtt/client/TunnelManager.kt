@@ -202,27 +202,17 @@ object TunnelManager {
 
         scope.launch {
             try {
-                val targetHash = if (activeHashIndex == 0) params.vkHashes else params.secondaryVkHash
-                
-                // Robust hash parsing: split by comma, newline, or whitespace
-                val hashList = VkHashParser.parseList(targetHash).take(3)
+                val vkLink = if (activeHashIndex == 0) params.vkHashes else params.secondaryVkHash
 
-                if (hashList.isEmpty()) {
-                    updateLog("hash_error", "Ошибка: Хеш не указан", 99, true)
+                if (vkLink.isBlank() || !vkLink.contains("vk.com/call/join/")) {
+                    updateLog("hash_error", "Ошибка: неверная ссылка VK", 99, true)
                     connectionStage.value = ConnectionStage.FAILED
                     connectionHint.value = "Укажите ссылку vk.com/call/join/..."
                     running.value = false
                     return@launch
                 }
-                if (params.connectionPassword.isBlank()) {
-                    updateLog("password_error", "Ошибка: пароль подключения не указан", 99, true)
-                    connectionStage.value = ConnectionStage.FAILED
-                    connectionHint.value = "Задайте пароль в ServerConfig.kt и пересоберите APK"
-                    running.value = false
-                    return@launch
-                }
 
-                val hashCount = hashList.size.coerceIn(1, 3)
+                val hashCount = 1
                 val totalWorkers = params.workersPerHash.coerceIn(1, 128)
                 
                 val hashMode = if (activeHashIndex == 0) "Основной" else "Запасной"
@@ -252,20 +242,13 @@ object TunnelManager {
                 val cmd = mutableListOf(
                     binaryPath,
                     "-peer", params.peer,
-                    "-vk", hashList.joinToString(","),
-                    "-n", totalWorkers.toString(),
-                    "-listen", "127.0.0.1:${params.port}"
+                    "-link", vkLink,
+                    "-listen", "127.0.0.1:${params.port}",
+                    "-obf-profile", "rtpopus",
+                    "-obf-key", ServerConfig.OBF_KEY,
+                    "-provider", "vk",
+                    "-n", totalWorkers.toString()
                 )
-
-                val androidId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "unknown"
-                cmd.add("-device-id")
-                cmd.add(androidId)
-
-                cmd.add("-password")
-                cmd.add(params.connectionPassword)
-
-                cmd.add("-captcha-mode")
-                cmd.add(params.captchaMode)
 
                 val pb = ProcessBuilder(cmd)
                 pb.directory(context.filesDir)

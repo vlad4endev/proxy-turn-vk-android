@@ -57,7 +57,6 @@ import com.wdtt.client.ServerConfig
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.TunnelService
-import com.wdtt.client.VkHashParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -90,7 +89,7 @@ fun TunnelTab() {
     val isConnecting = isStarting || (tunnelRunning && activeWorkers <= 0)
     val vkHash = remember(vkLink) { parseVkHash(vkLink) }
     val powerEnabled = tunnelRunning || isStarting ||
-        (vkLink.isNotBlank() && vkHash.length >= 16)
+        (vkLink.isNotBlank() && vkHash.isNotBlank())
 
     LaunchedEffect(tunnelRunning) {
         if (!tunnelRunning) isStarting = false
@@ -506,10 +505,10 @@ private suspend fun connectTunnel(
     }
 }
 
-/** Хеш VK-звонка: не короче 16 символов, иначе пустая строка. */
+/** Полная ссылка VK-звонка, если содержит vk.com/call/join/. */
 private fun parseVkHash(input: String): String {
-    val hash = VkHashParser.parse(input)
-    return if (hash.length >= 16) hash else ""
+    val trimmed = input.trim()
+    return if (trimmed.contains("vk.com/call/join/")) trimmed else ""
 }
 
 private fun disconnectTunnel(context: Context) {
