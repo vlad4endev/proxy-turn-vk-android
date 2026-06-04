@@ -79,6 +79,8 @@ object TunnelManager {
     private var currentHashErrorCount = 0
     private var wrapAuthTimeoutCount = 0
     var processStartedAtMs = 0L
+    /** Момент, когда Go-клиент выдал WireGuard-конфиг и мы начали поднимать VPN. */
+    var wireGuardExpectedAtMs = 0L
     private var lastActiveAtMs = 0L
     private var activeHashIndex = 0 // 0: primary, 1: secondary
     private var currentParams: TunnelParams? = null
@@ -186,6 +188,7 @@ object TunnelManager {
             currentHashErrorCount = 0
             wrapAuthTimeoutCount = 0
             processStartedAtMs = 0L
+            wireGuardExpectedAtMs = 0L
             lastActiveAtMs = 0L
             activeHashIndex = 0
             currentParams = params
@@ -595,6 +598,7 @@ object TunnelManager {
                             collectingConfig = false
                             val configStr = configBuilder.toString().trim()
                             config.value = configStr
+                            wireGuardExpectedAtMs = System.currentTimeMillis()
                             
                             scope.launch(Dispatchers.Main) {
                                 try {
@@ -789,6 +793,7 @@ object TunnelManager {
         killProcess()
         running.value = false
         activeWorkers.value = 0
+        wireGuardExpectedAtMs = 0L
         connectionStage.value = ConnectionStage.IDLE
         connectionHint.value = ""
         connectionSnapshot.value = TunnelConnectionSnapshot()

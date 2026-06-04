@@ -284,12 +284,17 @@ class TunnelService : Service() {
                     break
                 }
                 if (TunnelManager.running.value && !isTunnelPaused) {
-                    val helper = WireGuardHelper(applicationContext)
-                    val startupWindow = System.currentTimeMillis() - TunnelManager.processStartedAtMs < 6000
-                    if (!startupWindow && !helper.isTunnelUp()) {
-                        Log.w("TunnelService", "Обнаружена пропажа или замена VPN-интерфейса! Экстренное выключение туннеля.")
-                        stopTunnel()
-                        break
+                    // WireGuard поднимается только после VK → TURN → DTLS → GETCONF (десятки секунд).
+                    // Не проверяем интерфейс до получения конфига — иначе туннель убивается на этапе VK-кредов.
+                    val wgExpectedAt = TunnelManager.wireGuardExpectedAtMs
+                    if (wgExpectedAt > 0L) {
+                        val helper = WireGuardHelper(applicationContext)
+                        val gracePeriodMs = 30_000L
+                        if (System.currentTimeMillis() - wgExpectedAt > gracePeriodMs && !helper.isTunnelUp()) {
+                            Log.w("TunnelService", "WireGuard не поднялся после конфига — экстренное отключение.")
+                            stopTunnel()
+                            break
+                        }
                     }
                 }
                 if (!isTunnelPaused) {
