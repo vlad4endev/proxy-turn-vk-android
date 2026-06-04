@@ -23,6 +23,10 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.*
@@ -40,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -153,9 +158,14 @@ fun TunnelTab() {
         startConnect()
     }
 
+    val scrollState = rememberScrollState()
+    val linkFieldBringIntoView = remember { BringIntoViewRequester() }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
+            .verticalScroll(scrollState)
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -184,17 +194,20 @@ fun TunnelTab() {
             VkLinkField(
                 value = vkLink,
                 onChange = { vkLink = it },
-                enabled = !tunnelRunning
+                enabled = !tunnelRunning,
+                bringIntoViewRequester = linkFieldBringIntoView
             )
         }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
 
         ServerStatusRow(
             tunnelRunning = tunnelRunning || isStarting,
             isConnecting = isConnecting,
             isConnected = isConnected
         )
+
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -328,7 +341,13 @@ private fun StatusLabel(
 }
 
 @Composable
-private fun VkLinkField(value: String, onChange: (String) -> Unit, enabled: Boolean) {
+private fun VkLinkField(
+    value: String,
+    onChange: (String) -> Unit,
+    enabled: Boolean,
+    bringIntoViewRequester: BringIntoViewRequester
+) {
+    val scope = rememberCoroutineScope()
     val hashInvalid = value.isNotBlank() && VkHashParser.looksInvalid(value)
     OutlinedTextField(
         value = value,
@@ -354,7 +373,17 @@ private fun VkLinkField(value: String, onChange: (String) -> Unit, enabled: Bool
         isError = hashInvalid,
         singleLine = true,
         enabled = enabled,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .onFocusChanged { focus ->
+                if (focus.isFocused) {
+                    scope.launch {
+                        delay(100)
+                        bringIntoViewRequester.bringIntoView()
+                    }
+                }
+            },
         shape = RoundedCornerShape(14.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
