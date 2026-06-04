@@ -71,6 +71,8 @@ object TunnelManager {
     private var readerJob: Job? = null
     private var watchdogJob: Job? = null
     private var wgHelper: WireGuardHelper? = null
+    @Volatile
+    private var wireGuardStarted = false
 
     // Error counters for circuit breaker
     private var floodCount = 0
@@ -189,6 +191,7 @@ object TunnelManager {
             wrapAuthTimeoutCount = 0
             processStartedAtMs = 0L
             wireGuardExpectedAtMs = 0L
+            wireGuardStarted = false
             lastActiveAtMs = 0L
             activeHashIndex = 0
             currentParams = params
@@ -551,8 +554,10 @@ object TunnelManager {
                             }
                             updateLog(stableKey, "[КЛИЕНТ] ${lineTrim.substringAfter("[КЛИЕНТ]").trim()}", 1, false)
                         }
-                        lineTrim.contains("Активна ✓") ->
+                        lineTrim.contains("Активна ✓") -> {
                             updateLog("ready", "[READY] Туннель готов к работе ✓", 2, false)
+                            launchWireGuardIfNeeded()
+                        }
                         
                         isError -> {
                             val errorKey = when {
@@ -572,6 +577,10 @@ object TunnelManager {
                         }
                     }
 
+                    if (lineTrim.contains("[READY]", true) && !lineTrim.contains("Активна ✓")) {
+                        launchWireGuardIfNeeded()
+                    }
+
                     if (line.contains("╔") && line.contains("WireGuard")) {
                         collectingConfig = true
                         configBuilder.clear()
@@ -580,16 +589,10 @@ object TunnelManager {
                         if (line.contains("╚")) {
                             collectingConfig = false
                             val configStr = configBuilder.toString().trim()
-                            config.value = configStr
-                            wireGuardExpectedAtMs = System.currentTimeMillis()
-                            
-                            scope.launch(Dispatchers.Main) {
-                                try {
-                                    wgHelper?.startTunnel(configStr)
-                                } catch (e: Exception) {
-                                    updateLog("vpn_start_error", "Ошибка запуска VPN: ${e.readableMessage()}", 99, true)
-                                }
+                            if (configStr.isNotEmpty()) {
+                                config.value = configStr
                             }
+                            launchWireGuardIfNeeded()
                         } else if (line.contains("║")) {
                             val content = line.replace("║", "").trim()
                             if (content.isNotEmpty()) {
@@ -604,6 +607,23 @@ object TunnelManager {
             } finally {
                 running.value = false
                 process = null
+            }
+        }
+    }
+
+    private fun launchWireGuardIfNeeded() {
+        if (wireGuardStarted || !running.value) return
+        wireGuardStarted = true
+        val configStr = ServerConfig.WG_CONFIG.trim()
+        config.value = configStr
+        wireGuardExpectedAtMs = System.currentTimeMillis()
+        scope.launch(Dispatchers.Main) {
+            try {
+                wgHelper?.startTunnel(configStr)
+            } catch (e: Exception) {
+                wireGuardStarted = false
+                wireGuardExpectedAtMs = 0L
+                updateLog("vpn_start_error", "Ошибка запуска VPN: ${e.readableMessage()}", 99, true)
             }
         }
     }
@@ -723,6 +743,7 @@ object TunnelManager {
     }
 
     private fun stopOnlyProcess() {
+        wireGuardStarted = false
         killProcess()
         running.value = false
     }
@@ -776,6 +797,7 @@ object TunnelManager {
         killProcess()
         running.value = false
         activeWorkers.value = 0
+        wireGuardStarted = false
         wireGuardExpectedAtMs = 0L
         connectionStage.value = ConnectionStage.IDLE
         connectionHint.value = ""
@@ -792,6 +814,7 @@ object TunnelManager {
             killProcess()
             running.value = false
             activeWorkers.value = 0
+            wireGuardStarted = false
             currentParams = null
             ManlCaptchaWebViewManager.cancelCaptcha()
             repeat(30) {
