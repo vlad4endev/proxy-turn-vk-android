@@ -7,5 +7,5 @@ package com.wdtt.client
 object ServerConfig {
     const val HOST     = "192.145.30.132"       // ← IP твоего VPS
     const val PORT     = 56000              // ← не менять
-    const val PASSWORD = "пароль_туннеля"  // ← из install.sh --password
+    const val PASSWORD = "vlad1995%"  // ← из install.sh --password
 }
