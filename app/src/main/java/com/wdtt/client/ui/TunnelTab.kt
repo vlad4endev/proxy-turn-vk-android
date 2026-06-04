@@ -28,7 +28,7 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ripple.rememberRipple
+import androidx.compose.material3.ripple
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -262,7 +262,7 @@ private fun PowerButton(
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
-                indication = rememberRipple(bounded = true, radius = 62.dp),
+                indication = ripple(bounded = true, radius = 62.dp),
                 onClick = onClick
             )
             .drawBehind {
