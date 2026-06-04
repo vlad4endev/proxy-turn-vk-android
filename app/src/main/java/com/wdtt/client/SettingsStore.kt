@@ -524,7 +524,7 @@ class SettingsStore(context: Context) {
                 prefs.putSecret(
                     CONNECTION_PASSWORD_ENCRYPTED,
                     CONNECTION_PASSWORD,
-                    "tunnel2026",
+                    ServerConfig.PASSWORD,
                     profile
                 )
             }

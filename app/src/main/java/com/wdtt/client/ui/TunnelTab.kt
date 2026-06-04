@@ -24,10 +24,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,12 +40,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.ServerConfig
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
+import com.wdtt.client.TunnelParams
 import com.wdtt.client.TunnelService
 import com.wdtt.client.VkHashParser
 import kotlinx.coroutines.Dispatchers
@@ -56,155 +56,156 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val ColorIdle       = Color(0xFF52525B)
+private val ColorIdle = Color(0xFF52525B)
 private val ColorConnecting = Color(0xFFF59E0B)
-private val ColorConnected  = Color(0xFF4ADE80)
+private val ColorConnected = Color(0xFF4ADE80)
 
-private enum class UiState { IDLE, CONNECTING, CONNECTED }
+private val Peer = "${ServerConfig.HOST}:${ServerConfig.PORT}"
 
 @Composable
 fun TunnelTab() {
     val context = LocalContext.current
-    val store   = remember { SettingsStore(context) }
+    val scope = rememberCoroutineScope()
+    val store = remember { SettingsStore(context) }
 
     val tunnelRunning by TunnelManager.running.collectAsStateWithLifecycle()
     val activeWorkers by TunnelManager.activeWorkers.collectAsStateWithLifecycle()
     val connectionHint by TunnelManager.connectionHint.collectAsStateWithLifecycle()
-    var vkLink     by rememberSaveable { mutableStateOf("") }
+
+    var vkLink by rememberSaveable { mutableStateOf("") }
     var elapsedSec by remember { mutableLongStateOf(0L) }
-    var downMb     by remember { mutableFloatStateOf(0f) }
-    var upMb       by remember { mutableFloatStateOf(0f) }
-    var uiState    by remember { mutableStateOf(if (tunnelRunning) UiState.CONNECTED else UiState.IDLE) }
+    var pendingConnectAfterVpn by remember { mutableStateOf(false) }
 
-    LaunchedEffect(tunnelRunning, activeWorkers) {
-        when {
-            tunnelRunning && activeWorkers > 0 -> uiState = UiState.CONNECTED
-            tunnelRunning -> {
-                if (uiState != UiState.IDLE) uiState = UiState.CONNECTING
-            }
-            else -> {
-                uiState = UiState.IDLE
-                elapsedSec = 0L
-                downMb = 0f
-                upMb = 0f
-            }
-        }
+    val isConnected = tunnelRunning && activeWorkers > 0
+    val isConnecting = tunnelRunning && activeWorkers <= 0
+
+    LaunchedEffect(Unit) {
+        val saved = store.wdttLink.first()
+        if (saved.isNotBlank()) vkLink = saved
     }
 
-    LaunchedEffect(uiState) {
-        if (uiState == UiState.CONNECTED) {
+    LaunchedEffect(vkLink) {
+        if (vkLink.isBlank()) return@LaunchedEffect
+        delay(400)
+        store.saveWdttLink(vkLink.trim())
+    }
+
+    LaunchedEffect(isConnected) {
+        if (!isConnected) {
             elapsedSec = 0L
-            while (true) {
-                delay(1000)
-                elapsedSec++
-            }
+            return@LaunchedEffect
         }
-    }
-
-    val logs by TunnelManager.logs.collectAsStateWithLifecycle()
-    LaunchedEffect(logs) {
-        logs.lastOrNull()?.message?.let { msg ->
-            Regex("""(\d+\.?\d*)\s*[МM][Бб].*?(\d+\.?\d*)\s*[МM][Бб]""").find(msg)?.let {
-                downMb = it.groupValues[1].toFloatOrNull() ?: downMb
-                upMb   = it.groupValues[2].toFloatOrNull() ?: upMb
-            }
+        elapsedSec = 0L
+        while (true) {
+            delay(1000)
+            elapsedSec++
         }
     }
 
     val vpnLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
-    ) {
-        if (it.resultCode == android.app.Activity.RESULT_OK) {
-            uiState = UiState.CONNECTING
-            doConnect(context, store, vkLink) { s -> uiState = s }
+    ) { result ->
+        if (!pendingConnectAfterVpn) return@rememberLauncherForActivityResult
+        pendingConnectAfterVpn = false
+        if (result.resultCode == android.app.Activity.RESULT_OK && VpnService.prepare(context) == null) {
+            scope.launch { connectTunnel(context, store, vkLink) }
+        } else {
+            Toast.makeText(context, "VPN-разрешение не выдано", Toast.LENGTH_SHORT).show()
         }
     }
 
-    fun onPower() {
-        when (uiState) {
-            UiState.IDLE -> {
-                if (vkLink.isBlank()) {
-                    Toast.makeText(context, "Вставьте ссылку VK звонка", Toast.LENGTH_SHORT).show()
-                    return
-                }
-                if (VkHashParser.parse(vkLink).isBlank()) {
-                    Toast.makeText(
-                        context,
-                        "Неверная ссылка: вставьте полную ссылку vk.com/call/join/... или только хеш",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    return
-                }
-                val intent = VpnService.prepare(context)
-                if (intent != null) {
-                    vpnLauncher.launch(intent)
-                } else {
-                    uiState = UiState.CONNECTING
-                    doConnect(context, store, vkLink) { s -> uiState = s }
-                }
-            }
-            UiState.CONNECTED, UiState.CONNECTING -> {
-                uiState = UiState.IDLE
-                TunnelManager.stop()
-                try {
-                    context.startService(
-                        Intent(context, TunnelService::class.java).apply { action = "STOP" }
-                    )
-                } catch (_: Exception) {
-                }
-            }
+    fun requestVpnAndConnect() {
+        val vpnIntent = VpnService.prepare(context)
+        if (vpnIntent != null) {
+            pendingConnectAfterVpn = true
+            vpnLauncher.launch(vpnIntent)
+        } else {
+            scope.launch { connectTunnel(context, store, vkLink) }
         }
+    }
+
+    fun onPowerClick() {
+        if (tunnelRunning) {
+            disconnectTunnel(context)
+            return
+        }
+        if (vkLink.isBlank()) {
+            Toast.makeText(context, "Вставьте ссылку VK звонка", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (VkHashParser.parse(vkLink).isBlank()) {
+            Toast.makeText(
+                context,
+                "Неверная ссылка: vk.com/call/join/... или https://vk.com/call/join/...",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        requestVpnAndConnect()
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Spacer(Modifier.height(16.dp))
 
-        PowerButton(uiState = uiState, onClick = ::onPower)
+        PowerButton(
+            tunnelRunning = tunnelRunning,
+            isConnecting = isConnecting,
+            onClick = ::onPowerClick
+        )
 
-        StatusLabel(uiState = uiState, elapsedSec = elapsedSec, hint = connectionHint)
+        StatusLabel(
+            tunnelRunning = tunnelRunning,
+            isConnecting = isConnecting,
+            isConnected = isConnected,
+            elapsedSec = elapsedSec,
+            hint = connectionHint
+        )
 
         AnimatedVisibility(
-            visible = uiState == UiState.CONNECTED,
+            visible = !isConnected,
             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-            exit  = fadeOut(tween(200)) + shrinkVertically(tween(200))
-        ) {
-            TrafficStats(downMb = downMb, upMb = upMb)
-        }
-
-        AnimatedVisibility(
-            visible = uiState != UiState.CONNECTED,
-            enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-            exit  = fadeOut(tween(200)) + shrinkVertically(tween(200))
+            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
             VkLinkField(
-                value    = vkLink,
+                value = vkLink,
                 onChange = { vkLink = it },
-                enabled  = uiState == UiState.IDLE
+                enabled = !tunnelRunning
             )
         }
 
         Spacer(Modifier.weight(1f))
 
-        ServerStatusRow(uiState = uiState)
+        ServerStatusRow(
+            tunnelRunning = tunnelRunning,
+            isConnecting = isConnecting,
+            isConnected = isConnected
+        )
     }
 }
 
 @Composable
-private fun PowerButton(uiState: UiState, onClick: () -> Unit) {
-    val targetColor = when (uiState) {
-        UiState.IDLE       -> ColorIdle
-        UiState.CONNECTING -> ColorConnecting
-        UiState.CONNECTED  -> ColorConnected
+private fun PowerButton(
+    tunnelRunning: Boolean,
+    isConnecting: Boolean,
+    onClick: () -> Unit
+) {
+    val targetColor = when {
+        !tunnelRunning -> ColorIdle
+        isConnecting -> ColorConnecting
+        else -> ColorConnected
     }
     val ringColor by animateColorAsState(targetColor, tween(400), label = "ring")
-    val bgAlpha   by animateFloatAsState(if (uiState == UiState.IDLE) 0f else 0.09f, tween(400), label = "bg")
+    val bgAlpha by animateFloatAsState(
+        if (!tunnelRunning) 0f else 0.09f,
+        tween(400),
+        label = "bg"
+    )
 
     val inf = rememberInfiniteTransition(label = "spin")
     val spinAngle by inf.animateFloat(
@@ -225,22 +226,22 @@ private fun PowerButton(uiState: UiState, onClick: () -> Unit) {
         modifier = Modifier
             .size(124.dp)
             .clip(CircleShape)
-            .clickable(remember { MutableInteractionSource() }, null) { onClick() }
+            .clickable(remember { MutableInteractionSource() }, null, onClick = onClick)
     ) {
         Canvas(Modifier.fillMaxSize()) {
             val r = size.minDimension / 2f
             drawCircle(ringColor.copy(alpha = bgAlpha))
             drawCircle(ringColor, radius = r - 2.dp.toPx(), style = Stroke(2.dp.toPx()))
-            if (uiState == UiState.CONNECTING) {
+            if (tunnelRunning && isConnecting) {
                 rotate(spinAngle) {
                     drawArc(
-                        color      = ringColor,
+                        color = ringColor,
                         startAngle = 0f,
                         sweepAngle = arcSweep,
-                        useCenter  = false,
-                        topLeft    = Offset(6.dp.toPx(), 6.dp.toPx()),
-                        size       = Size(size.width - 12.dp.toPx(), size.height - 12.dp.toPx()),
-                        style      = Stroke(2.dp.toPx(), cap = StrokeCap.Round)
+                        useCenter = false,
+                        topLeft = Offset(6.dp.toPx(), 6.dp.toPx()),
+                        size = Size(size.width - 12.dp.toPx(), size.height - 12.dp.toPx()),
+                        style = Stroke(2.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
             }
@@ -250,29 +251,35 @@ private fun PowerButton(uiState: UiState, onClick: () -> Unit) {
             val sw = 2.2.dp.toPx()
             drawLine(ringColor, Offset(cx, 0f), Offset(cx, size.height * 0.36f), sw, StrokeCap.Round)
             drawArc(
-                color      = ringColor,
+                color = ringColor,
                 startAngle = -210f,
                 sweepAngle = 240f,
-                useCenter  = false,
-                topLeft    = Offset(size.width * 0.12f, size.height * 0.18f),
-                size       = Size(size.width * 0.76f, size.height * 0.76f),
-                style      = Stroke(sw, cap = StrokeCap.Round)
+                useCenter = false,
+                topLeft = Offset(size.width * 0.12f, size.height * 0.18f),
+                size = Size(size.width * 0.76f, size.height * 0.76f),
+                style = Stroke(sw, cap = StrokeCap.Round)
             )
         }
     }
 }
 
 @Composable
-private fun StatusLabel(uiState: UiState, elapsedSec: Long, hint: String) {
-    val color = when (uiState) {
-        UiState.IDLE       -> MaterialTheme.colorScheme.onSurfaceVariant
-        UiState.CONNECTING -> ColorConnecting
-        UiState.CONNECTED  -> ColorConnected
+private fun StatusLabel(
+    tunnelRunning: Boolean,
+    isConnecting: Boolean,
+    isConnected: Boolean,
+    elapsedSec: Long,
+    hint: String
+) {
+    val color = when {
+        !tunnelRunning -> MaterialTheme.colorScheme.onSurfaceVariant
+        isConnecting -> ColorConnecting
+        else -> ColorConnected
     }
-    val text = when (uiState) {
-        UiState.IDLE       -> "Отключено"
-        UiState.CONNECTING -> "Подключение..."
-        UiState.CONNECTED  -> {
+    val text = when {
+        !tunnelRunning -> "Отключено"
+        isConnecting -> "Подключение..."
+        else -> {
             val h = elapsedSec / 3600
             val m = (elapsedSec % 3600) / 60
             val s = elapsedSec % 60
@@ -280,55 +287,22 @@ private fun StatusLabel(uiState: UiState, elapsedSec: Long, hint: String) {
             else "Подключено · %02d:%02d".format(m, s)
         }
     }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
         Text(
             text,
             color = color,
             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
         )
-        if (uiState == UiState.CONNECTING && hint.isNotBlank()) {
+        if (isConnecting && hint.isNotBlank()) {
             Text(
                 hint,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = TextAlign.Center
             )
-        }
-    }
-}
-
-@Composable
-private fun TrafficStats(downMb: Float, upMb: Float) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StatCard("Загружено", "%.1f".format(downMb), "МБ", Modifier.weight(1f))
-        StatCard("Отдано", "%.1f".format(upMb), "МБ", Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun StatCard(label: String, value: String, unit: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier,
-        RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(value, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium))
-                Text(
-                    unit,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
         }
     }
 }
@@ -340,10 +314,9 @@ private fun VkLinkField(value: String, onChange: (String) -> Unit, enabled: Bool
         value = value,
         onValueChange = { raw ->
             val trimmed = raw.trim()
-            val parsed = VkHashParser.parse(trimmed)
-            onChange(parsed.ifBlank { trimmed })
+            onChange(trimmed)
         },
-        label       = { Text("Ссылка VK звонка") },
+        label = { Text("Ссылка VK звонка") },
         placeholder = {
             Text(
                 "vk.com/call/join/...",
@@ -353,39 +326,43 @@ private fun VkLinkField(value: String, onChange: (String) -> Unit, enabled: Bool
         supportingText = if (hashInvalid) {
             {
                 Text(
-                    "Вставьте полную ссылку или хеш после /join/ (без «https:» в начале)",
+                    "Вставьте ссылку vk.com/call/join/HASH или https://vk.com/call/join/HASH",
                     color = MaterialTheme.colorScheme.error
                 )
             }
         } else null,
         isError = hashInvalid,
-        singleLine  = true,
-        enabled     = enabled,
-        modifier    = Modifier.fillMaxWidth(),
-        shape       = RoundedCornerShape(14.dp),
-        colors      = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor   = MaterialTheme.colorScheme.primary,
+        singleLine = true,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
         )
     )
 }
 
 @Composable
-private fun ServerStatusRow(uiState: UiState) {
-    val dotColor = when (uiState) {
-        UiState.IDLE       -> Color(0xFF3F3F46)
-        UiState.CONNECTING -> ColorConnecting
-        UiState.CONNECTED  -> ColorConnected
+private fun ServerStatusRow(
+    tunnelRunning: Boolean,
+    isConnecting: Boolean,
+    isConnected: Boolean
+) {
+    val dotColor = when {
+        !tunnelRunning -> Color(0xFF3F3F46)
+        isConnecting -> ColorConnecting
+        else -> ColorConnected
     }
-    val statusText = when (uiState) {
-        UiState.IDLE       -> "ожидание"
-        UiState.CONNECTING -> "соединяемся..."
-        UiState.CONNECTED  -> "VK TURN · готов"
+    val statusText = when {
+        !tunnelRunning -> "ожидание"
+        isConnecting -> "соединяемся..."
+        else -> "VK TURN · готов"
     }
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment     = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             "СЕРВЕР",
@@ -403,93 +380,65 @@ private fun ServerStatusRow(uiState: UiState) {
     }
 }
 
-private fun doConnect(
-    context: Context,
-    store: SettingsStore,
-    rawLink: String,
-    onState: (UiState) -> Unit
-) {
-    TunnelManager.scope.launch {
-        try {
-            val hash = VkHashParser.parse(rawLink)
-            if (hash.isBlank()) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Неверная ссылка VK звонка", Toast.LENGTH_SHORT).show()
-                    onState(UiState.IDLE)
-                }
-                return@launch
-            }
-
-            val peer = if (ServerConfig.isConfigured()) {
-                ServerConfig.defaultPeer()
-            } else {
-                ensurePeerHasPort(
-                    store.peer.first().ifBlank { ServerConfig.defaultPeer() },
-                    ServerConfig.PORT
-                )
-            }
-            val password = if (ServerConfig.isConfigured()) {
-                ServerConfig.PASSWORD
-            } else {
-                store.connectionPassword.first().ifBlank { ServerConfig.PASSWORD }
-            }
-            if (password.isBlank()) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        context,
-                        "Не задан пароль VPS. Укажите в ServerConfig.kt и пересоберите APK",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    onState(UiState.IDLE)
-                }
-                return@launch
-            }
-            store.saveConnectionPassword(password)
-            val port = store.listenPort.first()
-            val captchaMode = store.captchaMode.first().ifBlank { "auto" }
-            val captchaSolveMethod = store.captchaSolveMethod.first().ifBlank { "auto" }
-
-            store.save(
-                peer = peer,
-                vkHashes = hash,
-                secondaryVkHash = "",
-                workersPerHash = 18,
-                protocol = "udp",
-                listenPort = port
-            )
-
-            val svcIntent = Intent(context, TunnelService::class.java).apply {
-                action = "START"
-                putExtra("peer", peer)
-                putExtra("vk_hashes", hash)
-                putExtra("secondary_vk_hash", "")
-                putExtra("workers_per_hash", 18)
-                putExtra("port", port)
-                putExtra("sni", "")
-                putExtra("connection_password", password)
-                putExtra("protocol", "udp")
-                putExtra("captcha_mode", captchaMode)
-                putExtra("captcha_solve_method", captchaSolveMethod)
-            }
-            withContext(Dispatchers.Main) {
-                if (Build.VERSION.SDK_INT >= 26) {
-                    context.startForegroundService(svcIntent)
-                } else {
-                    context.startService(svcIntent)
-                }
-            }
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
-                onState(UiState.IDLE)
-            }
+private suspend fun connectTunnel(context: Context, store: SettingsStore, rawLink: String) {
+    val hash = VkHashParser.parse(rawLink)
+    if (hash.isBlank()) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "Неверная ссылка VK звонка", Toast.LENGTH_SHORT).show()
         }
+        return
+    }
+
+    val linkToSave = rawLink.trim()
+    store.save(
+        peer = Peer,
+        vkHashes = hash,
+        secondaryVkHash = "",
+        workersPerHash = 18,
+        protocol = "udp",
+        listenPort = 9000
+    )
+    store.saveConnectionPassword(ServerConfig.PASSWORD)
+    store.saveWdttLink(linkToSave)
+
+    val params = TunnelParams(
+        peer = Peer,
+        vkHashes = hash,
+        secondaryVkHash = "",
+        workersPerHash = 18,
+        port = 9000,
+        connectionPassword = ServerConfig.PASSWORD,
+        protocol = "udp"
+    )
+
+    val svcIntent = Intent(context, TunnelService::class.java).apply {
+        action = "START"
+        putExtra("peer", Peer)
+        putExtra("vk_hashes", hash)
+        putExtra("secondary_vk_hash", "")
+        putExtra("workers_per_hash", 18)
+        putExtra("port", 9000)
+        putExtra("sni", "")
+        putExtra("connection_password", ServerConfig.PASSWORD)
+        putExtra("protocol", "udp")
+    }
+
+    withContext(Dispatchers.Main) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            context.startForegroundService(svcIntent)
+        } else {
+            context.startService(svcIntent)
+        }
+        TunnelManager.start(context, params)
     }
 }
 
-private fun ensurePeerHasPort(peer: String, defaultPort: Int): String {
-    val trimmed = peer.trim()
-    if (trimmed.isBlank()) return trimmed
-    if (trimmed.contains(":")) return trimmed
-    return "$trimmed:$defaultPort"
+private fun disconnectTunnel(context: Context) {
+    TunnelManager.stop()
+    try {
+        context.startService(
+            Intent(context, TunnelService::class.java).apply { action = "STOP" }
+        )
+    } catch (_: Exception) {
+    }
 }

@@ -65,7 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.wdtt.client.ui.AppUpdateDialog
 import com.wdtt.client.ui.FloatingToolbar
 import com.wdtt.client.ui.LogsTab
-import com.wdtt.client.ui.SettingsTab
+import com.wdtt.client.ui.TunnelTab
 import com.wdtt.client.ui.ExceptionsTab
 import com.wdtt.client.ui.InfoTab
 import kotlinx.coroutines.delay
@@ -352,11 +352,11 @@ fun MainScreen(
                     label = "tab_content"
                 ) { tab ->
                     when (tab) {
-                        0 -> SettingsTab()
+                        0 -> TunnelTab()
                         2 -> ExceptionsTab()
                         3 -> LogsTab()
                         4 -> InfoTab()
-                        else -> SettingsTab()
+                        else -> TunnelTab()
                     }
                 }
 
