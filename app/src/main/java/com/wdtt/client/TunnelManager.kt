@@ -16,13 +16,51 @@ import java.io.File
 
 import androidx.compose.runtime.Stable
 
+enum class ConnectionStage {
+    IDLE,
+    STARTING,
+    VK_CREDS,
+    VK_CAPTCHA,
+    SERVER_DTLS,
+    VPN_READY,
+    FAILED
+}
+
+enum class LogCategory {
+    SYSTEM,
+    VK,
+    CAPTCHA,
+    TURN,
+    WRAP,
+    SERVER,
+    VPN,
+    STATS,
+    NETWORK,
+    DEPLOY,
+    ERROR
+}
+
 @Stable
 data class LogEntry(
     val key: String,
     val message: String,
     val count: Int = 1,
     val priority: Int = 99, // 0 - Creds, 1 - DTLS, 2 - Ready, 3 - Stats, 99 - Errors/Other
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val category: LogCategory = LogCategory.SYSTEM,
+    val timestampMs: Long = System.currentTimeMillis(),
+    val lastSeenMs: Long = timestampMs
+)
+
+@Stable
+data class TunnelConnectionSnapshot(
+    val peer: String = "",
+    val listen: String = "",
+    val hashMode: String = "",
+    val hashCount: Int = 0,
+    val workers: Int = 0,
+    val captchaMode: String = "",
+    val captchaSolve: String = ""
 )
 
 object TunnelManager {
@@ -58,7 +96,10 @@ object TunnelManager {
     val config = MutableStateFlow<String?>(null)
     val stats = MutableStateFlow("Ожидание данных...")
     val activeWorkers = MutableStateFlow(0)
-    
+    val connectionStage = MutableStateFlow(ConnectionStage.IDLE)
+    val connectionHint = MutableStateFlow("")
+    val connectionSnapshot = MutableStateFlow(TunnelConnectionSnapshot())
+
     val cooldownActive = MutableStateFlow(false)
     private var cooldownJob: Job? = null
 
@@ -77,8 +118,24 @@ object TunnelManager {
         updateLog("deploy_ok_$hash", message, 2, false)
     }
 
+    private fun categorizeLog(message: String, isError: Boolean): LogCategory = when {
+        message.startsWith("[ДЕПЛОЙ]") -> LogCategory.DEPLOY
+        message.startsWith("[ВК]") || message.contains("[VK", ignoreCase = true) -> LogCategory.VK
+        message.startsWith("[КАПЧА") -> LogCategory.CAPTCHA
+        message.startsWith("[TURN]") -> LogCategory.TURN
+        message.startsWith("[WRAP]") -> LogCategory.WRAP
+        message.startsWith("[СЕРВЕР]") || message.startsWith("[КЛИЕНТ]") -> LogCategory.SERVER
+        message.startsWith("[READY]") -> LogCategory.VPN
+        message.startsWith("[СТАТИСТИКА]") -> LogCategory.STATS
+        message.startsWith("[СЕТЬ]") || message.startsWith("[СТОП]") -> LogCategory.NETWORK
+        isError -> LogCategory.ERROR
+        else -> LogCategory.SYSTEM
+    }
+
     private fun updateLog(key: String, message: String, priority: Int, isError: Boolean = false) {
         if (!isLoggingEnabled) return
+        val category = categorizeLog(message, isError)
+        val now = System.currentTimeMillis()
         if (isError) {
             val list = logs.value
             if (list.none { it.key == key }) {
@@ -90,12 +147,17 @@ object TunnelManager {
             val index = current.indexOfFirst { it.key == key }
 
             if (index != -1) {
-                // Обновляем текст и счётчик НА МЕСТЕ
                 val entry = current[index]
-                current[index] = entry.copy(count = entry.count + 1, message = message, priority = priority, isError = isError)
+                current[index] = entry.copy(
+                    count = entry.count + 1,
+                    message = message,
+                    priority = priority,
+                    isError = isError,
+                    category = category,
+                    lastSeenMs = now
+                )
             } else {
-                // Новая запись
-                current.add(LogEntry(key, message, 1, priority, isError))
+                current.add(LogEntry(key, message, 1, priority, isError, category, now, now))
             }
 
             // Сортировка: по приоритету (наименьший сверху), затем ошибки
@@ -114,6 +176,8 @@ object TunnelManager {
         
         if (!isSwitching) {
             clearLogs()
+            connectionStage.value = ConnectionStage.STARTING
+            connectionHint.value = ""
             config.value = null
             stats.value = "Ожидание данных..."
             floodCount = 0
@@ -138,19 +202,19 @@ object TunnelManager {
                 val targetHash = if (activeHashIndex == 0) params.vkHashes else params.secondaryVkHash
                 
                 // Robust hash parsing: split by comma, newline, or whitespace
-                val hashList = targetHash
-                    .split(Regex("[,\\s\\n]+"))
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-                    .take(3)
+                val hashList = VkHashParser.parseList(targetHash).take(3)
 
                 if (hashList.isEmpty()) {
                     updateLog("hash_error", "Ошибка: Хеш не указан", 99, true)
+                    connectionStage.value = ConnectionStage.FAILED
+                    connectionHint.value = "Укажите ссылку vk.com/call/join/..."
                     running.value = false
                     return@launch
                 }
                 if (params.connectionPassword.isBlank()) {
                     updateLog("password_error", "Ошибка: пароль подключения не указан", 99, true)
+                    connectionStage.value = ConnectionStage.FAILED
+                    connectionHint.value = "Задайте пароль в ServerConfig.kt и пересоберите APK"
                     running.value = false
                     return@launch
                 }
@@ -159,7 +223,20 @@ object TunnelManager {
                 val totalWorkers = params.workersPerHash.coerceIn(1, 128)
                 
                 val hashMode = if (activeHashIndex == 0) "Основной" else "Запасной"
+                connectionSnapshot.value = TunnelConnectionSnapshot(
+                    peer = params.peer,
+                    listen = "127.0.0.1:${params.port}",
+                    hashMode = hashMode,
+                    hashCount = hashCount,
+                    workers = totalWorkers,
+                    captchaMode = params.captchaMode,
+                    captchaSolve = params.captchaSolveMethod
+                )
                 updateLog("config_info", "[$hashMode] Хешей=$hashCount, Потоков=$totalWorkers", 1)
+                updateLog("path_start", "[ПУТЬ] Телефон → VK → TURN → VPS ${params.peer} → WireGuard", 0)
+                updateLog("server_peer", "[СЕРВЕР] VPS ${params.peer} (DTLS/WRAP после VK-кредов)", 1)
+                connectionStage.value = ConnectionStage.VK_CREDS
+                connectionHint.value = "Шаг 1/2: авторизация VK…"
 
                 val binaryPath = context.applicationInfo.nativeLibraryDir + "/libclient.so"
                 val binaryFile = File(binaryPath)
@@ -231,6 +308,7 @@ object TunnelManager {
 
                     val msgPrefixReplaced = line.replace(Regex("^\\d{4}/\\d{2}/\\d{2}\\s\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?\\s"), "")
                     val lineTrim = msgPrefixReplaced.trim()
+                    mapGoLineToStage(lineTrim)
 
                     val isError = lineTrim.contains("Ошибка", true) || lineTrim.contains("error", true) || lineTrim.contains("FAIL", true) || lineTrim.contains("timeout", true) || lineTrim.contains("refused", true) || lineTrim.contains("FATAL_AUTH", true)
 
@@ -416,12 +494,40 @@ object TunnelManager {
                             updateLog(stableKey, "[КАПЧА WBV] $text", 5, isErr)
                         }
 
-                        lineTrim.contains("Старт") || lineTrim.contains("Ожидайте") ->
-                            updateLog("creds_start", "[ВК] Получение учетных данных...", 2, false)
+                        lineTrim.contains("Старт") || lineTrim.contains("Ожидайте") ||
+                            (lineTrim.contains("[ГРУППА") && lineTrim.contains("Запрос кредов")) ->
+                            updateLog("creds_start", "[ВК] Получение учётных данных VK…", 2, false)
                         lineTrim.contains("Креды получены") ->
                             updateLog("creds_lifetime", lineTrim, 2, false)
+                        lineTrim.contains("[ГРУППА") && lineTrim.contains("Креды OK") -> {
+                            val tail = lineTrim.substringAfter("Креды OK")
+                                .trim().trimStart('—', '-').trim()
+                            updateLog("creds_ok", "[ВК] Креды OK ✓${if (tail.isNotBlank()) " — $tail" else ""}", 2, false)
+                        }
                         lineTrim.contains("Креды OK") || lineTrim.contains("Первые креды") ->
-                            updateLog("creds_ok", "[ВК] Учетные данные проверены ✓", 2, false)
+                            updateLog("creds_ok", "[ВК] Учётные данные VK получены ✓", 2, false)
+                        lineTrim.contains("[ГРУППА") && lineTrim.contains("Успешный старт") ->
+                            updateLog("group_relay_ok", "[TURN] Группа на relay, эстафета следующей…", 2, false)
+                        lineTrim.contains("[ДИСП]") && lineTrim.contains("зарегистрирован") -> {
+                            val m = Regex("""#(\d+)\s+зарегистрирован\s+\(всего:\s*(\d+)\)""").find(lineTrim)
+                            val detail = if (m != null) {
+                                "воркер #${m.groupValues[1]} на VPS (всего ${m.groupValues[2]})"
+                            } else {
+                                lineTrim.substringAfter("[ДИСП]").trim()
+                            }
+                            updateLog("disp_reg", "[СЕРВЕР] $detail", 1, false)
+                        }
+                        lineTrim.contains("[ГРУППА") && lineTrim.contains("Ошибка кредов") -> {
+                            val detail = lineTrim.substringAfter("Ошибка кредов:", lineTrim).trim()
+                            updateLog("vk_creds_fatal", "[ВК] $detail", 99, true)
+                        }
+                        lineTrim.contains("[STREAM") && lineTrim.contains("[VK Auth]") -> {
+                            val text = lineTrim.substringAfter("[VK Auth]").trim().ifBlank { lineTrim }
+                            val isVkErr = text.contains("Failed", true) ||
+                                text.contains("error", true) ||
+                                text.contains("Rate limit", true)
+                            updateLog("vk_auth_${text.take(24).hashCode()}", "[ВК] $text", 2, isVkErr)
+                        }
                         lineTrim.contains("Решаю VK Smart Captcha") ->
                             updateLog("captcha_start", "[КАПЧА] Решение капчи...", 5, false)
                         lineTrim.contains("Smart Captcha решена") ->
@@ -439,10 +545,26 @@ object TunnelManager {
                                 text.contains("неполный ответ", true)
                             updateLog("turn_${text.take(32).hashCode()}", "[TURN] $text", 2, turnError)
                         }
-                        lineTrim.contains("Relay:") ->
-                            updateLog("dtls_start", "[DTLS] Рукопожатие (Handshake)...", 1, false)
-                        lineTrim.contains("DTLS ОК") ->
-                            updateLog("dtls_ok", "[DTLS] Соединение установлено ✓", 1, false)
+                        lineTrim.contains("Relay:") ||
+                            (lineTrim.contains("[ВОРКЕР") && lineTrim.contains("[DTLS]") && lineTrim.contains("Handshake")) ->
+                            updateLog("dtls_start", "[СЕРВЕР] DTLS handshake с VPS…", 1, false)
+                        lineTrim.contains("DTLS ОК") ||
+                            (lineTrim.contains("[ВОРКЕР") && lineTrim.contains("DTLS") && lineTrim.contains("установлено")) ->
+                            updateLog("dtls_ok", "[СЕРВЕР] DTLS с VPS установлен ✓", 1, false)
+                        lineTrim.contains("[КЛИЕНТ]") && (
+                            lineTrim.contains("Пир:") || lineTrim.contains("Слушаю:") ||
+                                lineTrim.contains("Воркеров:") || lineTrim.contains("Хешей:") ||
+                                lineTrim.contains("Протокол:") || lineTrim.contains("WRAP:") ||
+                                lineTrim.contains("Device ID:")
+                            ) -> {
+                            val stableKey = when {
+                                lineTrim.contains("Пир:") -> "client_peer"
+                                lineTrim.contains("Слушаю:") -> "client_listen"
+                                lineTrim.contains("Воркеров:") -> "client_workers"
+                                else -> "client_boot_${lineTrim.take(24).hashCode()}"
+                            }
+                            updateLog(stableKey, "[КЛИЕНТ] ${lineTrim.substringAfter("[КЛИЕНТ]").trim()}", 1, false)
+                        }
                         lineTrim.contains("Активна ✓") ->
                             updateLog("ready", "[READY] Туннель готов к работе ✓", 2, false)
                         
@@ -618,6 +740,48 @@ object TunnelManager {
         running.value = false
     }
 
+    private fun mapGoLineToStage(line: String) {
+        when {
+            line.contains("[КАПЧА]", true) || line.contains("Captcha", true) ||
+                line.contains("CAPTCHA", true) -> {
+                connectionStage.value = ConnectionStage.VK_CAPTCHA
+                connectionHint.value = "VK запросил капчу — не закрывайте приложение"
+            }
+            line.contains("[ГРУППА") && line.contains("Запрос кредов") ||
+                line.contains("[VK Auth]", true) ||
+                line.contains("[ВК]", true) && line.contains("Получение", true) -> {
+                connectionStage.value = ConnectionStage.VK_CREDS
+                connectionHint.value = "Шаг 1/2: авторизация VK…"
+            }
+            line.contains("[ГРУППА") && line.contains("Креды OK") -> {
+                connectionStage.value = ConnectionStage.SERVER_DTLS
+                connectionHint.value = "Шаг 2/2: подключение к VPS (DTLS)…"
+            }
+            line.contains("[DTLS]", true) || line.contains("WRAP_AUTH", true) ||
+                line.contains("[WRAP]", true) && line.contains("Handshake", true) -> {
+                connectionStage.value = ConnectionStage.SERVER_DTLS
+                connectionHint.value = "Шаг 2/2: VPS не отвечает — проверьте пароль и wdtt.service"
+            }
+            line.contains("[READY]", true) || line.contains("Активна ✓", true) -> {
+                connectionStage.value = ConnectionStage.VPN_READY
+                connectionHint.value = ""
+            }
+            line.contains("FATAL_AUTH", true) -> {
+                connectionStage.value = ConnectionStage.FAILED
+                connectionHint.value = "Пароль в APK ≠ пароль на VPS (deploy -password)"
+            }
+            line.contains("WRAP_AUTH_TIMEOUT", true) || line.contains("DTLS timeout", true) -> {
+                if (activeWorkers.value <= 0) {
+                    connectionHint.value = "VPS: неверный пароль, сервер выключен или UDP 56000 закрыт"
+                }
+            }
+            line.contains("[ГРУППА") && line.contains("Ошибка кредов") -> {
+                connectionStage.value = ConnectionStage.FAILED
+                connectionHint.value = "Ссылка VK недействительна или звонок завершён"
+            }
+        }
+    }
+
     fun stop() {
         scope.launch(Dispatchers.Main) {
             wgHelper?.stopTunnel()
@@ -625,6 +789,9 @@ object TunnelManager {
         killProcess()
         running.value = false
         activeWorkers.value = 0
+        connectionStage.value = ConnectionStage.IDLE
+        connectionHint.value = ""
+        connectionSnapshot.value = TunnelConnectionSnapshot()
         currentParams = null
         ManlCaptchaWebViewManager.cancelCaptcha()
     }
