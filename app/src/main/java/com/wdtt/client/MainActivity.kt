@@ -227,7 +227,10 @@ fun MainScreen(
     var pendingRelease by remember { mutableStateOf<AppReleaseInfo?>(null) }
     val currentVersion = remember { "v${BuildConfig.VERSION_NAME.removePrefix("v")}" }
     val safeBottomInset = with(density) { WindowInsets.safeDrawing.getBottom(density).toDp() }
+    val imeBottomInset = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+    val isImeVisible = imeBottomInset > 0.dp
     val navOverlayReserve = safeBottomInset + 96.dp
+    val contentBottomPadding = if (isImeVisible) imeBottomInset + 16.dp else navOverlayReserve
 
     val activeNavItems = navItems
 
@@ -348,7 +351,7 @@ fun MainScreen(
                     },
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(bottom = navOverlayReserve),
+                        .padding(bottom = contentBottomPadding),
                     label = "tab_content"
                 ) { tab ->
                     when (tab) {
@@ -360,24 +363,26 @@ fun MainScreen(
                     }
                 }
 
-                ProxyNavigationBar(
-                    navItems = activeNavItems,
-                    selectedTab = selectedTab,
-                    dragTargetIndex = dragTargetIndex,
-                    dragProgress = dragProgress,
-                    unreadErrors = unreadErrors,
-                    tunnelRunning = tunnelRunning,
-                    onTabSelected = { index ->
-                        if (selectedTab != index) {
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            selectedTab = index
-                            if (index == 3) TunnelManager.clearUnreadErrors()
-                        }
-                        dragTargetIndex = -1
-                        dragProgress = 0f
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
+                if (!isImeVisible) {
+                    ProxyNavigationBar(
+                        navItems = activeNavItems,
+                        selectedTab = selectedTab,
+                        dragTargetIndex = dragTargetIndex,
+                        dragProgress = dragProgress,
+                        unreadErrors = unreadErrors,
+                        tunnelRunning = tunnelRunning,
+                        onTabSelected = { index ->
+                            if (selectedTab != index) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                selectedTab = index
+                                if (index == 3) TunnelManager.clearUnreadErrors()
+                            }
+                            dragTargetIndex = -1
+                            dragProgress = 0f
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
+                }
             }
         }
 

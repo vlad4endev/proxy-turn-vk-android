@@ -171,7 +171,6 @@ fun TunnelTab() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .imePadding()
             .verticalScroll(scrollState)
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
