@@ -660,7 +660,7 @@ private suspend fun performUninstall(
             timeout = 15000L
         )
 
-        onProgress(0.75f, "Удаление WDTT-интерфейса...")
+        onProgress(0.75f, "Удаление SKYFLOW M-интерфейса...")
         ssh.exec(
             rootCommand(
                 "ip link show wdtt0 >/dev/null 2>&1 && ip link del wdtt0 2>/dev/null || true; " +
@@ -865,13 +865,13 @@ fun UninstallConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
         ) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
-                    "Удаление WDTT с сервера",
+                    "Удаление SKYFLOW M с сервера",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error
                 )
                 Text(
-                    "Будут удалены: бинарник, systemd-сервис, бот, конфигурация WDTT и только помеченные правила firewall/NAT для WDTT.\n\nЭто действие необратимо.",
+                    "Будут удалены: бинарник, systemd-сервис, бот, конфигурация SKYFLOW M и только помеченные правила firewall/NAT для SKYFLOW M.\n\nЭто действие необратимо.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

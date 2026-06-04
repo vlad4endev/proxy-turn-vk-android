@@ -59,7 +59,7 @@ class VpnWidgetProvider : AppWidgetProvider() {
                 }
 
                 if (VpnService.prepare(context) != null) {
-                    Toast.makeText(context, "Откройте WDTT и выдайте VPN-разрешение", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Откройте SKYFLOW M и выдайте VPN-разрешение", Toast.LENGTH_LONG).show()
                     openMainActivity(context)
                     return
                 }
@@ -69,7 +69,7 @@ class VpnWidgetProvider : AppWidgetProvider() {
                     try {
                         val startIntent = buildStartIntent(context)
                         if (startIntent == null) {
-                            Toast.makeText(context, "Заполните настройки подключения в WDTT", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Заполните настройки подключения в SKYFLOW M", Toast.LENGTH_LONG).show()
                             openMainActivity(context)
                             return@launch
                         }
