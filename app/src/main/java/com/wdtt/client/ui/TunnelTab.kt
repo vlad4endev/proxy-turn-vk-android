@@ -21,6 +21,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -69,6 +70,7 @@ private val ColorConnected = Color(0xFF4ADE80)
 
 private val Peer = "${ServerConfig.HOST}:${ServerConfig.PORT}"
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TunnelTab() {
     val context = LocalContext.current
@@ -349,6 +351,7 @@ private fun StatusLabel(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VkLinkField(
     value: String,
