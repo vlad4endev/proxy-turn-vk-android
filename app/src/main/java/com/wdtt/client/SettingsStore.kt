@@ -30,6 +30,7 @@ class SettingsStore(context: Context) {
 
         private val PEER = stringPreferencesKey("peer")
         private val VK_HASHES = stringPreferencesKey("vk_hashes")
+        private val VK_LINK_RAW = stringPreferencesKey("vk_link_raw")
         private val SECONDARY_VK_HASH = stringPreferencesKey("secondary_vk_hash")
         private val WORKERS_PER_HASH = intPreferencesKey("workers_per_hash")
         private val PROTOCOL = stringPreferencesKey("protocol")
@@ -97,7 +98,7 @@ class SettingsStore(context: Context) {
             val newName = "${baseKey.name}_$profile"
             @Suppress("UNCHECKED_CAST")
             return when (baseKey) {
-                PEER, VK_HASHES, SECONDARY_VK_HASH, PROTOCOL, SNI, USER_AGENT, DEPLOY_IP, DEPLOY_LOGIN, DEPLOY_PASSWORD, DEPLOY_PASSWORD_ENCRYPTED, DEPLOY_SSH_PORT, EXCLUDED_APPS, CONNECTION_PASSWORD, CONNECTION_PASSWORD_ENCRYPTED, DEPLOY_MAIN_PASSWORD, DEPLOY_MAIN_PASSWORD_ENCRYPTED, DEPLOY_ADMIN_ID, DEPLOY_ADMIN_ID_ENCRYPTED, DEPLOY_BOT_TOKEN, DEPLOY_BOT_TOKEN_ENCRYPTED, PROXY_MODE, PROXY_HOST, CAPTCHA_MODE, CAPTCHA_SOLVE_METHOD, CAPTCHA_WBV_SOLVE_METHOD, WDTT_LINK -> stringPreferencesKey(newName) as Preferences.Key<T>
+                PEER, VK_HASHES, VK_LINK_RAW, SECONDARY_VK_HASH, PROTOCOL, SNI, USER_AGENT, DEPLOY_IP, DEPLOY_LOGIN, DEPLOY_PASSWORD, DEPLOY_PASSWORD_ENCRYPTED, DEPLOY_SSH_PORT, EXCLUDED_APPS, CONNECTION_PASSWORD, CONNECTION_PASSWORD_ENCRYPTED, DEPLOY_MAIN_PASSWORD, DEPLOY_MAIN_PASSWORD_ENCRYPTED, DEPLOY_ADMIN_ID, DEPLOY_ADMIN_ID_ENCRYPTED, DEPLOY_BOT_TOKEN, DEPLOY_BOT_TOKEN_ENCRYPTED, PROXY_MODE, PROXY_HOST, CAPTCHA_MODE, CAPTCHA_SOLVE_METHOD, CAPTCHA_WBV_SOLVE_METHOD, WDTT_LINK -> stringPreferencesKey(newName) as Preferences.Key<T>
                 WORKERS_PER_HASH, LISTEN_PORT, SERVER_DTLS_PORT, SERVER_WG_PORT, PROXY_PORT -> intPreferencesKey(newName) as Preferences.Key<T>
                 MANUAL_PORTS_ENABLED, NO_DTLS, NO_DNS, IS_WHITELIST, WDTT_LINK_MODE -> booleanPreferencesKey(newName) as Preferences.Key<T>
                 else -> throw IllegalArgumentException("Unsupported key type: ${baseKey.name}")
@@ -111,6 +112,7 @@ class SettingsStore(context: Context) {
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             migrateSecretsToKeystore()
+            seedDefaultsFromServerConfig()
         }
     }
 
@@ -133,6 +135,10 @@ class SettingsStore(context: Context) {
     val vkHashes: Flow<String> = dataStore.data.map { prefs ->
         val profile = prefs[ACTIVE_PROFILE] ?: 0
         prefs[getProfileKey(VK_HASHES, profile)] ?: ""
+    }
+    val vkLinkRaw: Flow<String> = dataStore.data.map { prefs ->
+        val profile = prefs[ACTIVE_PROFILE] ?: 0
+        prefs[getProfileKey(VK_LINK_RAW, profile)] ?: ""
     }
     val secondaryVkHash: Flow<String> = dataStore.data.map { prefs ->
         val profile = prefs[ACTIVE_PROFILE] ?: 0
@@ -353,6 +359,13 @@ class SettingsStore(context: Context) {
         }
     }
 
+    suspend fun saveVkLinkRaw(link: String) {
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            prefs[getProfileKey(VK_LINK_RAW, profile)] = link
+        }
+    }
+
     suspend fun save(
         peer: String,
         vkHashes: String,
@@ -491,6 +504,30 @@ class SettingsStore(context: Context) {
             val profile = prefs[ACTIVE_PROFILE] ?: 0
             prefs[getProfileKey(EXCLUDED_APPS, profile)] = packages
             prefs[getProfileKey(IS_WHITELIST, profile)] = isWhitelist
+        }
+    }
+
+    private suspend fun seedDefaultsFromServerConfig() {
+        dataStore.edit { prefs ->
+            val profile = 0
+            val peerKey = getProfileKey(PEER, profile)
+            if (prefs[peerKey].isNullOrBlank()) {
+                prefs[peerKey] = ServerConfig.defaultPeer()
+            }
+            val connectionPass = readSecret(
+                prefs,
+                CONNECTION_PASSWORD_ENCRYPTED,
+                CONNECTION_PASSWORD,
+                profile
+            )
+            if (connectionPass.isBlank()) {
+                prefs.putSecret(
+                    CONNECTION_PASSWORD_ENCRYPTED,
+                    CONNECTION_PASSWORD,
+                    "tunnel2026",
+                    profile
+                )
+            }
         }
     }
 
