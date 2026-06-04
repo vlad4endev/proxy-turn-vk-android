@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -47,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.TunnelService
+import com.wdtt.client.VkHashParser
 import com.wdtt.client.WDTTColors
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -103,6 +105,7 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
     }
 
     var peerInput by rememberSaveable { mutableStateOf("") }
+    var vkLinkRawInput by rememberSaveable { mutableStateOf("") }
     var vkHash1 by rememberSaveable { mutableStateOf("") }
     var vkHash2 by rememberSaveable { mutableStateOf("") }
     var vkHash3 by rememberSaveable { mutableStateOf("") }
@@ -174,8 +177,19 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
             .joinToString(",")
     }
 
+    fun applyVkLinkRaw(raw: String) {
+        vkLinkRawInput = raw
+        val parsed = VkHashParser.parse(raw)
+        if (parsed.isNotBlank()) {
+            vkHash1 = parsed
+        } else if (raw.isBlank()) {
+            vkHash1 = ""
+        }
+    }
+
     LaunchedEffect(activeProfile) {
         val peer = settingsStore.peer.first()
+        val vkLinkRaw = settingsStore.vkLinkRaw.first()
         val hashes = settingsStore.vkHashes.first()
         val workers = settingsStore.workersPerHash.first()
         val port = settingsStore.listenPort.first()
@@ -188,7 +202,11 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
         val wbvCaptchaMethod = settingsStore.captchaWbvSolveMethod.first()
         
         peerInput = peer
-        parseHashes(hashes)
+        if (vkLinkRaw.isNotBlank()) {
+            applyVkLinkRaw(vkLinkRaw)
+        } else {
+            parseHashes(hashes)
+        }
         workersInput = roundToGroup(workers.toFloat(), (listOf(vkHash1, vkHash2, vkHash3, vkHash4).count { it.isNotBlank() }.coerceAtLeast(1) * 27).toFloat())
         portInput = port.toString()
         manualPortsEnabled = manualPorts
@@ -415,6 +433,17 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                             )
+                        )
+
+                        VkLinkInputSection(
+                            rawLink = vkLinkRawInput,
+                            onRawLinkChange = { raw ->
+                                applyVkLinkRaw(raw)
+                                scope.launch { settingsStore.saveVkLinkRaw(raw) }
+                                scheduleSave()
+                            },
+                            tunnelRunning = tunnelRunning,
+                            enabled = !tunnelRunning
                         )
 
                         OutlinedButton(
@@ -748,6 +777,71 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
     }
 }
 
+private val VkLinkStatusReady = Color(0xFFF59E0B)
+private val VkLinkStatusActive = Color(0xFF4ADE80)
+
+@Composable
+private fun VkLinkInputSection(
+    rawLink: String,
+    onRawLinkChange: (String) -> Unit,
+    tunnelRunning: Boolean,
+    enabled: Boolean = true
+) {
+    val parsedHash = remember(rawLink) { VkHashParser.parse(rawLink.trim()) }
+    val hashPreview = remember(parsedHash) {
+        when {
+            parsedHash.isBlank() -> ""
+            parsedHash.length <= 12 -> parsedHash
+            else -> parsedHash.take(8) + "..."
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedTextField(
+            value = rawLink,
+            onValueChange = onRawLinkChange,
+            label = { Text("Ссылка VK звонка") },
+            placeholder = { Text("vk.com/call/join/... или хеш") },
+            singleLine = true,
+            enabled = enabled,
+            isError = rawLink.isNotBlank() && parsedHash.isBlank(),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+            )
+        )
+
+        if (parsedHash.isNotBlank()) {
+            Text(
+                text = "✓ Хеш: $hashPreview",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        when {
+            rawLink.isBlank() -> Unit
+            parsedHash.isBlank() -> Text(
+                text = "✗ Неверный формат ссылки",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            tunnelRunning -> Text(
+                text = "● Активно",
+                style = MaterialTheme.typography.bodySmall,
+                color = VkLinkStatusActive
+            )
+            else -> Text(
+                text = "● Хеш получен, готов к подключению",
+                style = MaterialTheme.typography.bodySmall,
+                color = VkLinkStatusReady
+            )
+        }
+    }
+}
+
 // ═══ Reusable mode chip ═══
 @Composable
 private fun ProtocolChip(label: String, selected: Boolean, enabled: Boolean = true, isError: Boolean = false, onClick: () -> Unit) {
@@ -948,29 +1042,7 @@ private fun roundToGroup(value: Float, maxW: Float = 96f): Float {
 }
 
 /** Извлекает хеш из VK ссылки */
-private fun stripVkUrlStatic(input: String): String {
-    var s = input.trim()
-    val lower = s.lowercase()
-    val prefixes = listOf(
-        "https://vk.com/call/join/",
-        "http://vk.com/call/join/",
-        "https://m.vk.com/call/join/",
-        "http://m.vk.com/call/join/",
-        "m.vk.com/call/join/",
-        "vk.com/call/join/"
-    )
-    for (prefix in prefixes) {
-        if (lower.startsWith(prefix)) {
-            s = s.substring(prefix.length)
-            break
-        }
-    }
-    val qIdx = s.indexOf('?')
-    if (qIdx != -1) s = s.substring(0, qIdx)
-    val hIdx = s.indexOf('#')
-    if (hIdx != -1) s = s.substring(0, hIdx)
-    return s.trimEnd('/')
-}
+private fun stripVkUrlStatic(input: String): String = com.wdtt.client.VkHashParser.normalizeForInput(input)
 
 // ═══ Модальное окно хешей ═══
 @OptIn(ExperimentalMaterial3Api::class)

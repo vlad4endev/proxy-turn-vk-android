@@ -64,7 +64,7 @@ func WorkerGroup(
 	if len(shortHash) > 8 {
 		shortHash = shortHash[:8]
 	}
-	log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
+	log.Printf("[ГРУППА #%d] [ВК] Запрос кредов (хеш: %s...)", groupID, shortHash)
 
 	credStreamID := groupID * 100
 	user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
@@ -72,11 +72,11 @@ func WorkerGroup(
 	if err == nil {
 		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
 	} else {
-		log.Printf("[ГРУППА #%d] Ошибка кредов: %v", groupID, err)
+		log.Printf("[ГРУППА #%d] [ВК] Ошибка кредов: %v", groupID, err)
 		return
 	}
 
-	log.Printf("[ГРУППА #%d] Креды OK, TURN: %v, %d воркеров", groupID, creds.TurnURLs, len(workerIDs))
+	log.Printf("[ГРУППА #%d] [ВК] Креды OK — далее DTLS к VPS, TURN: %v, %d воркеров", groupID, creds.TurnURLs, len(workerIDs))
 
 	var configRequestInFlight int32
 	var wg sync.WaitGroup
@@ -271,10 +271,21 @@ func normalizeVKJoinHash(input string) string {
 		return ""
 	}
 
+	if strings.HasPrefix(lower, "vk:") {
+		s = strings.TrimSpace(s[3:])
+	}
+	for strings.HasPrefix(s, ":") {
+		s = strings.TrimSpace(s[1:])
+	}
+
 	if idx := strings.IndexAny(s, "?#/"); idx != -1 {
 		s = s[:idx]
 	}
-	return strings.Trim(strings.TrimSpace(s), "/")
+	s = strings.Trim(strings.TrimSpace(s), "/")
+	if strings.HasPrefix(strings.ToLower(s), "http:") || strings.HasPrefix(strings.ToLower(s), "https:") {
+		return ""
+	}
+	return s
 }
 
 // TurnParams — конфигурация TURN

@@ -49,6 +49,7 @@ import com.wdtt.client.ServerConfig
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.TunnelService
+import com.wdtt.client.VkHashParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -67,20 +68,26 @@ fun TunnelTab() {
     val store   = remember { SettingsStore(context) }
 
     val tunnelRunning by TunnelManager.running.collectAsStateWithLifecycle()
+    val activeWorkers by TunnelManager.activeWorkers.collectAsStateWithLifecycle()
+    val connectionHint by TunnelManager.connectionHint.collectAsStateWithLifecycle()
     var vkLink     by rememberSaveable { mutableStateOf("") }
     var elapsedSec by remember { mutableLongStateOf(0L) }
     var downMb     by remember { mutableFloatStateOf(0f) }
     var upMb       by remember { mutableFloatStateOf(0f) }
     var uiState    by remember { mutableStateOf(if (tunnelRunning) UiState.CONNECTED else UiState.IDLE) }
 
-    LaunchedEffect(tunnelRunning) {
-        if (tunnelRunning) {
-            uiState = UiState.CONNECTED
-        } else {
-            uiState = UiState.IDLE
-            elapsedSec = 0L
-            downMb = 0f
-            upMb = 0f
+    LaunchedEffect(tunnelRunning, activeWorkers) {
+        when {
+            tunnelRunning && activeWorkers > 0 -> uiState = UiState.CONNECTED
+            tunnelRunning -> {
+                if (uiState != UiState.IDLE) uiState = UiState.CONNECTING
+            }
+            else -> {
+                uiState = UiState.IDLE
+                elapsedSec = 0L
+                downMb = 0f
+                upMb = 0f
+            }
         }
     }
 
@@ -120,6 +127,14 @@ fun TunnelTab() {
                     Toast.makeText(context, "Вставьте ссылку VK звонка", Toast.LENGTH_SHORT).show()
                     return
                 }
+                if (VkHashParser.parse(vkLink).isBlank()) {
+                    Toast.makeText(
+                        context,
+                        "Неверная ссылка: вставьте полную ссылку vk.com/call/join/... или только хеш",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    return
+                }
                 val intent = VpnService.prepare(context)
                 if (intent != null) {
                     vpnLauncher.launch(intent)
@@ -153,7 +168,7 @@ fun TunnelTab() {
 
         PowerButton(uiState = uiState, onClick = ::onPower)
 
-        StatusLabel(uiState = uiState, elapsedSec = elapsedSec)
+        StatusLabel(uiState = uiState, elapsedSec = elapsedSec, hint = connectionHint)
 
         AnimatedVisibility(
             visible = uiState == UiState.CONNECTED,
@@ -248,7 +263,7 @@ private fun PowerButton(uiState: UiState, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StatusLabel(uiState: UiState, elapsedSec: Long) {
+private fun StatusLabel(uiState: UiState, elapsedSec: Long, hint: String) {
     val color = when (uiState) {
         UiState.IDLE       -> MaterialTheme.colorScheme.onSurfaceVariant
         UiState.CONNECTING -> ColorConnecting
@@ -265,11 +280,21 @@ private fun StatusLabel(uiState: UiState, elapsedSec: Long) {
             else "Подключено · %02d:%02d".format(m, s)
         }
     }
-    Text(
-        text,
-        color = color,
-        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
-    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text,
+            color = color,
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
+        )
+        if (uiState == UiState.CONNECTING && hint.isNotBlank()) {
+            Text(
+                hint,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+    }
 }
 
 @Composable
@@ -310,9 +335,14 @@ private fun StatCard(label: String, value: String, unit: String, modifier: Modif
 
 @Composable
 private fun VkLinkField(value: String, onChange: (String) -> Unit, enabled: Boolean) {
+    val hashInvalid = value.isNotBlank() && VkHashParser.looksInvalid(value)
     OutlinedTextField(
         value = value,
-        onValueChange = { onChange(it.trim()) },
+        onValueChange = { raw ->
+            val trimmed = raw.trim()
+            val parsed = VkHashParser.parse(trimmed)
+            onChange(parsed.ifBlank { trimmed })
+        },
         label       = { Text("Ссылка VK звонка") },
         placeholder = {
             Text(
@@ -320,6 +350,15 @@ private fun VkLinkField(value: String, onChange: (String) -> Unit, enabled: Bool
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
             )
         },
+        supportingText = if (hashInvalid) {
+            {
+                Text(
+                    "Вставьте полную ссылку или хеш после /join/ (без «https:» в начале)",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        } else null,
+        isError = hashInvalid,
         singleLine  = true,
         enabled     = enabled,
         modifier    = Modifier.fillMaxWidth(),
@@ -372,7 +411,7 @@ private fun doConnect(
 ) {
     TunnelManager.scope.launch {
         try {
-            val hash = parseVkHash(rawLink)
+            val hash = VkHashParser.parse(rawLink)
             if (hash.isBlank()) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Неверная ссылка VK звонка", Toast.LENGTH_SHORT).show()
@@ -381,8 +420,31 @@ private fun doConnect(
                 return@launch
             }
 
-            val peer = store.peer.first().ifBlank { "${ServerConfig.HOST}:${ServerConfig.PORT}" }
-            val password = store.connectionPassword.first().ifBlank { ServerConfig.PASSWORD }
+            val peer = if (ServerConfig.isConfigured()) {
+                ServerConfig.defaultPeer()
+            } else {
+                ensurePeerHasPort(
+                    store.peer.first().ifBlank { ServerConfig.defaultPeer() },
+                    ServerConfig.PORT
+                )
+            }
+            val password = if (ServerConfig.isConfigured()) {
+                ServerConfig.PASSWORD
+            } else {
+                store.connectionPassword.first().ifBlank { ServerConfig.PASSWORD }
+            }
+            if (password.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        context,
+                        "Не задан пароль VPS. Укажите в ServerConfig.kt и пересоберите APK",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    onState(UiState.IDLE)
+                }
+                return@launch
+            }
+            store.saveConnectionPassword(password)
             val port = store.listenPort.first()
             val captchaMode = store.captchaMode.first().ifBlank { "auto" }
             val captchaSolveMethod = store.captchaSolveMethod.first().ifBlank { "auto" }
@@ -425,10 +487,9 @@ private fun doConnect(
     }
 }
 
-private fun parseVkHash(input: String): String {
-    val s = input.trim()
-    Regex("""call/join/([A-Za-z0-9_\-]+)""").find(s)?.groupValues?.get(1)?.let { return it }
-    if (s.startsWith("vk:")) return s.removePrefix("vk:").trim()
-    if (s.matches(Regex("""[A-Za-z0-9_\-]{16,}"""))) return s
-    return ""
+private fun ensurePeerHasPort(peer: String, defaultPort: Int): String {
+    val trimmed = peer.trim()
+    if (trimmed.isBlank()) return trimmed
+    if (trimmed.contains(":")) return trimmed
+    return "$trimmed:$defaultPort"
 }

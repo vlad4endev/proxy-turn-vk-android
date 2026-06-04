@@ -23,15 +23,17 @@ object ConfigInitializer {
         val currentPeer = store.peer.first()
         val serverHost = when {
             HardcodedConfig.SERVER_HOST != "185.x.x.x" -> HardcodedConfig.SERVER_HOST
-            ServerConfig.HOST != "185.x.x.x" -> ServerConfig.HOST
+            ServerConfig.isConfigured() -> ServerConfig.HOST
             else -> null
         }
         val serverPort = when {
             HardcodedConfig.SERVER_HOST != "185.x.x.x" -> HardcodedConfig.SERVER_PORT
-            ServerConfig.HOST != "185.x.x.x" -> ServerConfig.PORT
+            ServerConfig.isConfigured() -> ServerConfig.PORT
             else -> null
         }
-        if (currentPeer.isBlank() && serverHost != null && serverPort != null) {
+        if (serverHost != null && serverPort != null &&
+            (currentPeer.isBlank() || ServerConfig.isConfigured())
+        ) {
             store.save(
                 peer = "$serverHost:$serverPort",
                 vkHashes = store.vkHashes.first(),
@@ -46,10 +48,10 @@ object ConfigInitializer {
         val currentPass = store.connectionPassword.first()
         val tunnelPassword = when {
             HardcodedConfig.TUNNEL_PASSWORD != "пароль_туннеля" -> HardcodedConfig.TUNNEL_PASSWORD
-            ServerConfig.PASSWORD != "пароль_туннеля" -> ServerConfig.PASSWORD
+            ServerConfig.isConfigured() -> ServerConfig.PASSWORD
             else -> null
         }
-        if (currentPass.isBlank() && tunnelPassword != null) {
+        if (tunnelPassword != null && (currentPass.isBlank() || ServerConfig.isConfigured())) {
             store.saveConnectionPassword(tunnelPassword)
             store.saveDeploySecrets(
                 mainPass = tunnelPassword,
