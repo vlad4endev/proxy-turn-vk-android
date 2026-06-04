@@ -150,7 +150,7 @@ private fun InfoLogoHeader() {
             shadowElevation = 0.dp
         ) {
             Image(
-                painter = painterResource(R.mipmap.ic_launcher),
+                painter = painterResource(R.mipmap.ic_launcher_foreground),
                 contentDescription = "SKYFLOW M",
                 modifier = Modifier
                     .size(88.dp)
