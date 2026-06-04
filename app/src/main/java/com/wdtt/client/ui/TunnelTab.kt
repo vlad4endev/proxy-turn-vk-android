@@ -23,6 +23,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,7 +49,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.ServerConfig
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
-import com.wdtt.client.TunnelParams
 import com.wdtt.client.TunnelService
 import com.wdtt.client.VkHashParser
 import kotlinx.coroutines.Dispatchers
@@ -75,9 +76,14 @@ fun TunnelTab() {
     var vkLink by rememberSaveable { mutableStateOf("") }
     var elapsedSec by remember { mutableLongStateOf(0L) }
     var pendingConnectAfterVpn by remember { mutableStateOf(false) }
+    var isStarting by remember { mutableStateOf(false) }
 
     val isConnected = tunnelRunning && activeWorkers > 0
-    val isConnecting = tunnelRunning && activeWorkers <= 0
+    val isConnecting = isStarting || (tunnelRunning && activeWorkers <= 0)
+
+    LaunchedEffect(tunnelRunning) {
+        if (!tunnelRunning) isStarting = false
+    }
 
     LaunchedEffect(Unit) {
         val saved = store.wdttLink.first()
@@ -108,24 +114,26 @@ fun TunnelTab() {
         if (!pendingConnectAfterVpn) return@rememberLauncherForActivityResult
         pendingConnectAfterVpn = false
         if (result.resultCode == android.app.Activity.RESULT_OK && VpnService.prepare(context) == null) {
-            scope.launch { connectTunnel(context, store, vkLink) }
+            scope.launch { connectTunnel(context, store, vkLink) { isStarting = it } }
         } else {
+            isStarting = false
             Toast.makeText(context, "VPN-разрешение не выдано", Toast.LENGTH_SHORT).show()
         }
     }
 
-    fun requestVpnAndConnect() {
+    val startConnect: () -> Unit = {
         val vpnIntent = VpnService.prepare(context)
         if (vpnIntent != null) {
             pendingConnectAfterVpn = true
             vpnLauncher.launch(vpnIntent)
         } else {
-            scope.launch { connectTunnel(context, store, vkLink) }
+            scope.launch { connectTunnel(context, store, vkLink) { isStarting = it } }
         }
     }
 
     fun onPowerClick() {
-        if (tunnelRunning) {
+        if (tunnelRunning || isStarting) {
+            isStarting = false
             disconnectTunnel(context)
             return
         }
@@ -141,7 +149,8 @@ fun TunnelTab() {
             ).show()
             return
         }
-        requestVpnAndConnect()
+        isStarting = true
+        startConnect()
     }
 
     Column(
@@ -154,13 +163,13 @@ fun TunnelTab() {
         Spacer(Modifier.height(16.dp))
 
         PowerButton(
-            tunnelRunning = tunnelRunning,
+            tunnelRunning = tunnelRunning || isStarting,
             isConnecting = isConnecting,
-            onClick = ::onPowerClick
+            onClick = onPowerClick
         )
 
         StatusLabel(
-            tunnelRunning = tunnelRunning,
+            tunnelRunning = tunnelRunning || isStarting,
             isConnecting = isConnecting,
             isConnected = isConnected,
             elapsedSec = elapsedSec,
@@ -182,7 +191,7 @@ fun TunnelTab() {
         Spacer(Modifier.weight(1f))
 
         ServerStatusRow(
-            tunnelRunning = tunnelRunning,
+            tunnelRunning = tunnelRunning || isStarting,
             isConnecting = isConnecting,
             isConnected = isConnected
         )
@@ -221,46 +230,57 @@ private fun PowerButton(
         label = "sw"
     )
 
+    val interactionSource = remember { MutableInteractionSource() }
+
     Box(
-        contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(124.dp)
             .clip(CircleShape)
-            .clickable(remember { MutableInteractionSource() }, null, onClick = onClick)
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val r = size.minDimension / 2f
-            drawCircle(ringColor.copy(alpha = bgAlpha))
-            drawCircle(ringColor, radius = r - 2.dp.toPx(), style = Stroke(2.dp.toPx()))
-            if (tunnelRunning && isConnecting) {
-                rotate(spinAngle) {
-                    drawArc(
-                        color = ringColor,
-                        startAngle = 0f,
-                        sweepAngle = arcSweep,
-                        useCenter = false,
-                        topLeft = Offset(6.dp.toPx(), 6.dp.toPx()),
-                        size = Size(size.width - 12.dp.toPx(), size.height - 12.dp.toPx()),
-                        style = Stroke(2.dp.toPx(), cap = StrokeCap.Round)
-                    )
-                }
-            }
-        }
-        Canvas(Modifier.size(46.dp)) {
-            val cx = size.width / 2f
-            val sw = 2.2.dp.toPx()
-            drawLine(ringColor, Offset(cx, 0f), Offset(cx, size.height * 0.36f), sw, StrokeCap.Round)
-            drawArc(
-                color = ringColor,
-                startAngle = -210f,
-                sweepAngle = 240f,
-                useCenter = false,
-                topLeft = Offset(size.width * 0.12f, size.height * 0.18f),
-                size = Size(size.width * 0.76f, size.height * 0.76f),
-                style = Stroke(sw, cap = StrokeCap.Round)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = rememberRipple(bounded = true, radius = 62.dp),
+                onClick = onClick
             )
-        }
-    }
+            .drawBehind {
+                val r = size.minDimension / 2f
+                drawCircle(ringColor.copy(alpha = bgAlpha))
+                drawCircle(ringColor, radius = r - 2.dp.toPx(), style = Stroke(2.dp.toPx()))
+                if (tunnelRunning && isConnecting) {
+                    rotate(spinAngle) {
+                        drawArc(
+                            color = ringColor,
+                            startAngle = 0f,
+                            sweepAngle = arcSweep,
+                            useCenter = false,
+                            topLeft = Offset(6.dp.toPx(), 6.dp.toPx()),
+                            size = Size(size.width - 12.dp.toPx(), size.height - 12.dp.toPx()),
+                            style = Stroke(2.dp.toPx(), cap = StrokeCap.Round)
+                        )
+                    }
+                }
+                val iconSize = 46.dp.toPx()
+                val iconLeft = (size.width - iconSize) / 2f
+                val iconTop = (size.height - iconSize) / 2f
+                val cx = size.width / 2f
+                val sw = 2.2.dp.toPx()
+                drawLine(
+                    ringColor,
+                    Offset(cx, iconTop),
+                    Offset(cx, iconTop + iconSize * 0.36f),
+                    sw,
+                    StrokeCap.Round
+                )
+                drawArc(
+                    color = ringColor,
+                    startAngle = -210f,
+                    sweepAngle = 240f,
+                    useCenter = false,
+                    topLeft = Offset(iconLeft + iconSize * 0.12f, iconTop + iconSize * 0.18f),
+                    size = Size(iconSize * 0.76f, iconSize * 0.76f),
+                    style = Stroke(sw, cap = StrokeCap.Round)
+                )
+            }
+    )
 }
 
 @Composable
@@ -380,56 +400,65 @@ private fun ServerStatusRow(
     }
 }
 
-private suspend fun connectTunnel(context: Context, store: SettingsStore, rawLink: String) {
-    val hash = VkHashParser.parse(rawLink)
-    if (hash.isBlank()) {
+private suspend fun connectTunnel(
+    context: Context,
+    store: SettingsStore,
+    rawLink: String,
+    onStarting: (Boolean) -> Unit
+) {
+    try {
+        val hash = VkHashParser.parse(rawLink)
+        if (hash.isBlank()) {
+            withContext(Dispatchers.Main) {
+                onStarting(false)
+                Toast.makeText(context, "Неверная ссылка VK звонка", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val linkToSave = rawLink.trim()
+        withContext(Dispatchers.IO) {
+            store.save(
+                peer = Peer,
+                vkHashes = hash,
+                secondaryVkHash = "",
+                workersPerHash = 18,
+                protocol = "udp",
+                listenPort = 9000
+            )
+            store.saveConnectionPassword(ServerConfig.PASSWORD)
+            store.saveWdttLink(linkToSave)
+        }
+
+        val captchaMode = store.captchaMode.first().ifBlank { "auto" }
+        val captchaSolveMethod = store.captchaSolveMethod.first().ifBlank { "auto" }
+
+        val svcIntent = Intent(context, TunnelService::class.java).apply {
+            action = "START"
+            putExtra("peer", Peer)
+            putExtra("vk_hashes", hash)
+            putExtra("secondary_vk_hash", "")
+            putExtra("workers_per_hash", 18)
+            putExtra("port", 9000)
+            putExtra("sni", "")
+            putExtra("connection_password", ServerConfig.PASSWORD)
+            putExtra("protocol", "udp")
+            putExtra("captcha_mode", captchaMode)
+            putExtra("captcha_solve_method", captchaSolveMethod)
+        }
+
         withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Неверная ссылка VK звонка", Toast.LENGTH_SHORT).show()
+            if (Build.VERSION.SDK_INT >= 26) {
+                context.startForegroundService(svcIntent)
+            } else {
+                context.startService(svcIntent)
+            }
         }
-        return
-    }
-
-    val linkToSave = rawLink.trim()
-    store.save(
-        peer = Peer,
-        vkHashes = hash,
-        secondaryVkHash = "",
-        workersPerHash = 18,
-        protocol = "udp",
-        listenPort = 9000
-    )
-    store.saveConnectionPassword(ServerConfig.PASSWORD)
-    store.saveWdttLink(linkToSave)
-
-    val params = TunnelParams(
-        peer = Peer,
-        vkHashes = hash,
-        secondaryVkHash = "",
-        workersPerHash = 18,
-        port = 9000,
-        connectionPassword = ServerConfig.PASSWORD,
-        protocol = "udp"
-    )
-
-    val svcIntent = Intent(context, TunnelService::class.java).apply {
-        action = "START"
-        putExtra("peer", Peer)
-        putExtra("vk_hashes", hash)
-        putExtra("secondary_vk_hash", "")
-        putExtra("workers_per_hash", 18)
-        putExtra("port", 9000)
-        putExtra("sni", "")
-        putExtra("connection_password", ServerConfig.PASSWORD)
-        putExtra("protocol", "udp")
-    }
-
-    withContext(Dispatchers.Main) {
-        if (Build.VERSION.SDK_INT >= 26) {
-            context.startForegroundService(svcIntent)
-        } else {
-            context.startService(svcIntent)
+    } catch (e: Exception) {
+        withContext(Dispatchers.Main) {
+            onStarting(false)
+            Toast.makeText(context, "Ошибка запуска: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        TunnelManager.start(context, params)
     }
 }
 
