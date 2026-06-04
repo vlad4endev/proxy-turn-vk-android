@@ -37,6 +37,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -85,6 +86,9 @@ fun TunnelTab() {
 
     val isConnected = tunnelRunning && activeWorkers > 0
     val isConnecting = isStarting || (tunnelRunning && activeWorkers <= 0)
+    val vkHash = remember(vkLink) { parseVkHash(vkLink) }
+    val powerEnabled = tunnelRunning || isStarting ||
+        (vkLink.isNotBlank() && vkHash.length >= 16)
 
     LaunchedEffect(tunnelRunning) {
         if (!tunnelRunning) isStarting = false
@@ -146,7 +150,7 @@ fun TunnelTab() {
             Toast.makeText(context, "Вставьте ссылку VK звонка", Toast.LENGTH_SHORT).show()
             return
         }
-        if (VkHashParser.parse(vkLink).isBlank()) {
+        if (vkHash.isBlank()) {
             Toast.makeText(
                 context,
                 "Неверная ссылка: vk.com/call/join/... или https://vk.com/call/join/...",
@@ -155,7 +159,12 @@ fun TunnelTab() {
             return
         }
         isStarting = true
-        startConnect()
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                store.saveConnectionPassword(ServerConfig.PASSWORD)
+            }
+            startConnect()
+        }
     }
 
     val scrollState = rememberScrollState()
@@ -175,6 +184,7 @@ fun TunnelTab() {
         PowerButton(
             tunnelRunning = tunnelRunning || isStarting,
             isConnecting = isConnecting,
+            enabled = powerEnabled,
             onClick = onPowerClick
         )
 
@@ -215,6 +225,7 @@ fun TunnelTab() {
 private fun PowerButton(
     tunnelRunning: Boolean,
     isConnecting: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit
 ) {
     val targetColor = when {
@@ -248,8 +259,10 @@ private fun PowerButton(
     Box(
         modifier = Modifier
             .size(124.dp)
+            .alpha(if (enabled) 1f else 0.38f)
             .clip(CircleShape)
             .clickable(
+                enabled = enabled,
                 interactionSource = interactionSource,
                 indication = rememberRipple(bounded = true, radius = 62.dp),
                 onClick = onClick
@@ -348,7 +361,7 @@ private fun VkLinkField(
     bringIntoViewRequester: BringIntoViewRequester
 ) {
     val scope = rememberCoroutineScope()
-    val hashInvalid = value.isNotBlank() && VkHashParser.looksInvalid(value)
+    val hashInvalid = value.isNotBlank() && parseVkHash(value).isBlank()
     OutlinedTextField(
         value = value,
         onValueChange = { raw ->
@@ -436,7 +449,11 @@ private suspend fun connectTunnel(
     onStarting: (Boolean) -> Unit
 ) {
     try {
-        val hash = VkHashParser.parse(rawLink)
+        withContext(Dispatchers.IO) {
+            store.saveConnectionPassword(ServerConfig.PASSWORD)
+        }
+
+        val hash = parseVkHash(rawLink)
         if (hash.isBlank()) {
             withContext(Dispatchers.Main) {
                 onStarting(false)
@@ -489,6 +506,12 @@ private suspend fun connectTunnel(
             Toast.makeText(context, "Ошибка запуска: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
+}
+
+/** Хеш VK-звонка: не короче 16 символов, иначе пустая строка. */
+private fun parseVkHash(input: String): String {
+    val hash = VkHashParser.parse(input)
+    return if (hash.length >= 16) hash else ""
 }
 
 private fun disconnectTunnel(context: Context) {
