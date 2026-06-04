@@ -230,9 +230,6 @@ fun MainScreen(
     val navOverlayReserve = safeBottomInset + 96.dp
 
     val activeNavItems = navItems
-    val actionsExpanded = rememberSaveable { mutableStateOf(false) }
-    val projectExpanded = rememberSaveable { mutableStateOf(false) }
-
 
 
     LaunchedEffect(selectedTab) {
@@ -358,7 +355,7 @@ fun MainScreen(
                         0 -> TunnelTab()
                         2 -> ExceptionsTab()
                         3 -> LogsTab()
-                        4 -> InfoTab(actionsExpandedState = actionsExpanded, projectExpandedState = projectExpanded)
+                        4 -> InfoTab()
                         else -> TunnelTab()
                     }
                 }
