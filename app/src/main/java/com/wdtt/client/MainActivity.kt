@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         activeActivities++
         ManlCaptchaWebViewManager.checkAndShowPendingCaptcha(this)
+        CaptchaWebViewActivityLauncher.checkAndShowPendingCaptcha(this)
     }
 
     override fun onStop() {

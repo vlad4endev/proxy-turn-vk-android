@@ -252,6 +252,8 @@ object TunnelManager {
                     "-provider", "vk",
                     "-n", totalWorkers.toString()
                 )
+                cmd.add("-captcha-solve")
+                cmd.add("auto")
 
                 val pb = ProcessBuilder(cmd)
                 pb.directory(context.filesDir)
@@ -517,6 +519,23 @@ object TunnelManager {
                                 text.contains("Rate limit", true)
                             updateLog("vk_auth_${text.take(24).hashCode()}", "[ВК] $text", 2, isVkErr)
                         }
+                        lineTrim.contains("8765") ||
+                            lineTrim.contains("Opening browser") ||
+                            lineTrim.contains("manual-captcha", ignoreCase = true) ||
+                            lineTrim.contains("proxy HTTP server") -> {
+                            val ctx = lastContext
+                            if (ctx != null) {
+                                scope.launch(Dispatchers.Main) {
+                                    CaptchaWebViewActivityLauncher.openManualCaptcha(ctx)
+                                }
+                            }
+                            updateLog(
+                                "captcha_proxy_open",
+                                "[КАПЧА] Открыт WebView для ручной капчи (127.0.0.1:8765)",
+                                5,
+                                false
+                            )
+                        }
                         lineTrim.contains("Решаю VK Smart Captcha") ->
                             updateLog("captcha_start", "[КАПЧА] Решение капчи...", 5, false)
                         lineTrim.contains("Smart Captcha решена") ->
@@ -679,11 +698,16 @@ object TunnelManager {
                         processStartedAtMs > 0L &&
                         System.currentTimeMillis() - processStartedAtMs > 30_000 &&
                         lastActiveAtMs == 0L &&
-                        !ManlCaptchaWebViewManager.isCaptchaPending
+                        !ManlCaptchaWebViewManager.isCaptchaPending &&
+                        !CaptchaWebViewActivityLauncher.isCaptchaPending
                     ) {
                         handleCriticalError("\uD83D\uDD12 Неверный пароль подключения или несовместимый WRAP. Воркеры остановлены.")
                         return@launch
-                    } else if (System.currentTimeMillis() - zeroWorkersSince > 90_000 && !ManlCaptchaWebViewManager.isCaptchaPending) {
+                    } else if (
+                        System.currentTimeMillis() - zeroWorkersSince > 90_000 &&
+                        !ManlCaptchaWebViewManager.isCaptchaPending &&
+                        !CaptchaWebViewActivityLauncher.isCaptchaPending
+                    ) {
                         updateLog("watchdog", "⚠ Зомби-процесс (0 воркеров 90с). Перезапуск...", 50, true)
                         forceRegenerateUA = true
                         killProcess()
@@ -804,6 +828,7 @@ object TunnelManager {
         connectionSnapshot.value = TunnelConnectionSnapshot()
         currentParams = null
         ManlCaptchaWebViewManager.cancelCaptcha()
+        CaptchaWebViewActivityLauncher.dismiss()
     }
 
     suspend fun stopAndWait() {
@@ -817,6 +842,7 @@ object TunnelManager {
             wireGuardStarted = false
             currentParams = null
             ManlCaptchaWebViewManager.cancelCaptcha()
+            CaptchaWebViewActivityLauncher.dismiss()
             repeat(30) {
                 try {
                     java.net.ServerSocket(9000, 1, java.net.InetAddress.getByName("127.0.0.1")).use { it.close() }
