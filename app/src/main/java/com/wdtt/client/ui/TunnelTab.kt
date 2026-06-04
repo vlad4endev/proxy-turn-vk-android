@@ -140,30 +140,26 @@ fun TunnelTab() {
         }
     }
 
-    fun onPowerClick() {
+    val onPowerClick: () -> Unit = {
         if (tunnelRunning || isStarting) {
             isStarting = false
             disconnectTunnel(context)
-            return
-        }
-        if (vkLink.isBlank()) {
+        } else if (vkLink.isBlank()) {
             Toast.makeText(context, "Вставьте ссылку VK звонка", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (vkHash.isBlank()) {
+        } else if (vkHash.isBlank()) {
             Toast.makeText(
                 context,
                 "Неверная ссылка: vk.com/call/join/... или https://vk.com/call/join/...",
                 Toast.LENGTH_LONG
             ).show()
-            return
-        }
-        isStarting = true
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                store.saveConnectionPassword(ServerConfig.PASSWORD)
+        } else {
+            isStarting = true
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    store.saveConnectionPassword(ServerConfig.PASSWORD)
+                }
+                startConnect()
             }
-            startConnect()
         }
     }
 
