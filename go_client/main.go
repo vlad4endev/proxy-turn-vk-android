@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -93,6 +95,11 @@ func main() {
 	logger.Infof("Free Turn Proxy client version=%s", version)
 	logger.Infof("Client ID: %s", cfg.ClientID)
 	dnsdial.SetLogger(logger)
+
+	captchaResultCh := make(chan string, 1)
+	vk.SetCaptchaResultChannel(captchaResultCh)
+	go readStdinLines(ctx, cancel, captchaResultCh, logger)
+
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
@@ -140,6 +147,9 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Infof("provider=%s", prov.Name())
+	if cfg.Provider.Name == config.ProviderVK {
+		logger.Infof("[КЛИЕНТ] Captcha mode: %s", cfg.VK.CaptchaMode)
+	}
 
 	getCreds := func(ctx context.Context, streamID int) (string, string, string, error) {
 		c, err := prov.GetCredentials(ctx, streamID)
@@ -208,6 +218,7 @@ func buildProvider(cfg *config.Client, dialer net.Dialer, connected *atomic.Int3
 			Link:            cfg.VK.Link,
 			Dialer:          dialer,
 			ManualOnly:      cfg.VK.ManualCaptcha,
+			CaptchaMode:     cfg.VK.CaptchaMode,
 			StreamsPerCache: cfg.VK.StreamsPerCred,
 			StreamsAlive:    connected.Load,
 			Log:             logger,
@@ -302,4 +313,40 @@ func clientConfigPaths() []string {
 		paths = append(paths, filepath.Join(d, name))
 	}
 	return paths
+}
+
+func readStdinLines(ctx context.Context, cancel context.CancelFunc, captchaCh chan string, logger logx.Logger) {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "CAPTCHA_RESULT|"):
+			result := strings.TrimPrefix(line, "CAPTCHA_RESULT|")
+			select {
+			case captchaCh <- result:
+				logger.Infof("[КАПЧА] Результат от Android записан в канал")
+			default:
+				select {
+				case <-captchaCh:
+				default:
+				}
+				captchaCh <- result
+			}
+		case line == "STOP":
+			cancel()
+			return
+		default:
+			if !strings.Contains(line, "error:tunnel stopped") {
+				logger.Debugf("[STDIN] %s", line)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
 }

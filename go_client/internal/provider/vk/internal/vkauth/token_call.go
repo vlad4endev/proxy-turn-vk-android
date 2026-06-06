@@ -2,7 +2,6 @@ package vkauth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	neturl "net/url"
 	"time"
@@ -58,7 +57,7 @@ func (c *Client) fetchCallToken(
 	}
 }
 
-// solveCaptcha выполняет одну попытку решения captcha и возвращает тело POST
+// solveCaptcha выполняет цепочку решения captcha и возвращает тело POST
 // для следующего retry или ошибку при исчерпании всех режимов.
 func (c *Client) solveCaptcha(
 	ctx context.Context,
@@ -68,8 +67,7 @@ func (c *Client) solveCaptcha(
 	link, escapedName, token1 string,
 	captchaErr *captcha.Error,
 ) (retryData string, err error) {
-	solveMode, hasSolveMode := CaptchaSolveModeForAttempt(attempt, c.manualOnly)
-	if !hasSolveMode {
+	if attempt > 0 {
 		c.log.Warnf("[STREAM %d] [Captcha] No more solve modes available (attempt %d)", streamID, attempt+1)
 		c.engageLockout(60 * time.Second)
 		if c.streamsFn() == 0 {
@@ -79,92 +77,32 @@ func (c *Client) solveCaptcha(
 		return "", ErrCaptchaWaitRequired
 	}
 
-	var successToken string
-	var captchaKey string
-	var solveErr error
-
-	switch solveMode {
-	case CaptchaSolveModeAuto:
-		solveFn := c.autoSolver
-		if solveFn == nil {
-			solveFn = DefaultAutoSolve
-		}
-		if captchaErr.SessionToken != "" && captchaErr.RedirectURI != "" {
-			successToken, solveErr = solveFn(ctx, captchaErr, streamID, httpClient, profile)
-			if solveErr != nil {
-				c.log.Warnf("[STREAM %d] [Captcha] Auto captcha failed: %v", streamID, solveErr)
-			}
-		} else {
-			solveErr = fmt.Errorf("missing fields for auto solve")
-		}
-
-	case CaptchaSolveModeManual:
-		if c.manualSolve == nil {
-			solveErr = fmt.Errorf("manual captcha solver not configured")
-			break
-		}
-		c.log.Infof("[STREAM %d] [Captcha] Triggering manual captcha fallback", streamID)
-		// Ручной решалке выделяется свой 3-минутный бюджет — жёсткий parent-deadline
-		// не обрезает время пользователя. Отмена parent (завершение приложения)
-		// всё равно propagate, горутина не переживает процесс.
-		manualCtx, manualCancel := context.WithTimeout(ctx, 3*time.Minute)
-
-		type manualRes struct {
-			token string
-			key   string
-			err   error
-		}
-		resCh := make(chan manualRes, 1)
-		go func() {
-			t, k, e := c.manualSolve(manualCtx, captchaErr, c.dialer)
-			resCh <- manualRes{t, k, e}
-		}()
-
-		select {
-		case res := <-resCh:
-			successToken = res.token
-			captchaKey = res.key
-			solveErr = res.err
-			if successToken != "" || captchaKey != "" {
-				if solveErr != nil {
-					c.log.Debugf("[STREAM %d] [Captcha] Token received (ignoring cleanup error: %v)", streamID, solveErr)
-					solveErr = nil
-				}
-				c.log.Infof("[STREAM %d] [Captcha] Got token from browser", streamID)
-			} else if solveErr != nil {
-				c.log.Warnf("[STREAM %d] [Captcha] Manual solver error: %v", streamID, solveErr)
-			}
-		case <-manualCtx.Done():
-			if errors.Is(manualCtx.Err(), context.DeadlineExceeded) {
-				solveErr = fmt.Errorf("manual captcha timed out after 3m")
-			} else {
-				solveErr = fmt.Errorf("manual captcha interrupted: %w", manualCtx.Err())
-			}
-		}
-		manualCancel()
-	}
+	c.log.Infof("[STREAM %d] [Captcha] Solving captcha...", streamID)
+	successToken, solveErr := c.runCaptchaChain(ctx, httpClient, profile, streamID, captchaErr)
 
 	if solveErr != nil {
-		c.log.Warnf("[STREAM %d] [Captcha] %s failed (attempt %d): %v",
-			streamID, CaptchaSolveModeLabel(solveMode), attempt+1, solveErr)
-		nextSolveMode, hasNextSolveMode := CaptchaSolveModeForAttempt(attempt+1, c.manualOnly)
-		if hasNextSolveMode {
-			c.log.Infof("[STREAM %d] [Captcha] Falling back to %s",
-				streamID, CaptchaSolveModeLabel(nextSolveMode))
-			return buildCaptchaRetryData(link, escapedName, token1, captchaErr, "", captchaKey), nil
-		}
+		c.log.Warnf("[STREAM %d] [Captcha] captcha chain failed (attempt %d): %v", streamID, attempt+1, solveErr)
 		c.engageLockout(60 * time.Second)
 		if c.streamsFn() == 0 {
-			c.log.Errorf("[STREAM %d] [Captcha] FATAL: 0 connected streams and manual captcha failed/timed out", streamID)
+			c.log.Errorf("[STREAM %d] [Captcha] FATAL: 0 connected streams and captcha chain failed", streamID)
 			return "", ErrFatalCaptchaNoStreams
 		}
 		return "", ErrCaptchaWaitRequired
 	}
 
+	if successToken == "" {
+		c.engageLockout(60 * time.Second)
+		if c.streamsFn() == 0 {
+			return "", ErrFatalCaptchaNoStreams
+		}
+		return "", ErrCaptchaWaitRequired
+	}
+
+	c.log.Infof("[STREAM %d] [Captcha] solver succeeded", streamID)
 	if captchaErr.CaptchaAttempt == "0" || captchaErr.CaptchaAttempt == "" {
 		captchaErr.CaptchaAttempt = "1"
 	}
-	return buildCaptchaRetryData(link, escapedName, token1, captchaErr, successToken, captchaKey), nil
+	return buildCaptchaRetryData(link, escapedName, token1, captchaErr, successToken, ""), nil
 }
 
 // buildCaptchaRetryData формирует тело POST для следующей попытки captcha.

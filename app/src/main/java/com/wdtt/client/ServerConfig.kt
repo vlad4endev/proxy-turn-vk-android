@@ -10,6 +10,8 @@ object ServerConfig {
     const val PASSWORD = "tunnel2026"  // ← из install.sh --password
     const val OBF_KEY = "55c51601b576de791d58cd0ed8110f3833d106e40a16d10cfe09f53c0de5754a"
 
+    const val VLESS_URI = "vless://e3731d3b-5bac-42df-8299-c10bf105e4c5@178.208.87.245:8880/?type=ws&encryption=none&path=%2Fskyflow&host=skyflow.sky-flow.site&security=none#WS%20Protokol"
+
     const val WG_CONFIG = """
 [Interface]
 PrivateKey = WDa5z/k0Z4CR+92guVwyGQ41+9VqImg07HsNK4EunEo=

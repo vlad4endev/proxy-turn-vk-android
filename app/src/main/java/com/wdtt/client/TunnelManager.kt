@@ -16,6 +16,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 import androidx.compose.runtime.Stable
+import com.wdtt.client.xray.XrayHelper
+import com.wdtt.client.xray.parseVlessUri
 
 enum class ConnectionStage {
     IDLE,
@@ -92,6 +94,7 @@ object TunnelManager {
     @Volatile
     private var yandexCredsOk = false
     private var wgHelper: WireGuardHelper? = null
+    private var xrayHelper: XrayHelper? = null
     @Volatile
     private var wireGuardStarted = false
 
@@ -137,6 +140,10 @@ object TunnelManager {
 
     private val _showCaptchaModal = MutableStateFlow(false)
     val showCaptchaModal: StateFlow<Boolean> = _showCaptchaModal
+
+    fun showCaptchaModal() {
+        _showCaptchaModal.value = true
+    }
 
     fun dismissCaptchaModal() {
         _showCaptchaModal.value = false
@@ -254,6 +261,7 @@ object TunnelManager {
         }
         
         wgHelper = WireGuardHelper(appContext)
+        xrayHelper = XrayHelper(appContext)
         val mode = TunnelMode.from(params.tunnelMode)
         tunnelMode.value = mode
 
@@ -276,55 +284,51 @@ object TunnelManager {
     }
 
     private suspend fun startSpeedMode(context: Context, params: TunnelParams) {
-        val storedPeer = SettingsStore(context).peer.first().ifBlank { params.peer }
-        val host = storedPeer.trim().substringBefore(":")
-        if (host.isBlank()) {
-            updateLog("peer_error", "Ошибка: не указан IP VPS", 99, true)
+        val vlessUri = ServerConfig.VLESS_URI
+        val vlessCfg = try {
+            parseVlessUri(vlessUri)
+        } catch (e: Exception) {
+            updateLog("vless_parse_error", "Ошибка: неверный VLESS URI — ${e.message}", 99, true)
             connectionStage.value = ConnectionStage.FAILED
-            connectionHint.value = "Укажите IP сервера в настройках"
+            connectionHint.value = "Неверный VLESS URI в ServerConfig"
             running.value = false
             startInProgress = false
             return
         }
 
-        val endpoint = WireGuardHelper.speedEndpointFromPeer(storedPeer)
-        val configStr = WireGuardHelper.buildConfigForSpeedMode(storedPeer)
+        val endpoint = "${vlessCfg.serverHost}:${vlessCfg.serverPort}"
 
         connectionSnapshot.value = TunnelConnectionSnapshot(
             peer = endpoint,
-            listen = "—",
-            hashMode = "Скоростной",
+            listen = "127.0.0.1:${xrayHelper?.socksPort() ?: 10808}",
+            hashMode = "Скоростной (Xray)",
             hashCount = 0,
             workers = 0,
             captchaMode = "—",
             captchaSolve = "—"
         )
-        updateLog("path_start", "[ПУТЬ] Телефон → VPS $endpoint (WireGuard напрямую)", 0)
-        updateLog("server_peer", "[СЕРВЕР] VPS $endpoint (без TURN/VK)", 1)
+        updateLog("path_start", "[ПУТЬ] Телефон → ${vlessCfg.serverHost}:${vlessCfg.serverPort} (VLESS/${vlessCfg.network.uppercase()})", 0)
+        updateLog("server_peer", "[СЕРВЕР] ${vlessCfg.serverHost}:${vlessCfg.serverPort} — ${vlessCfg.remark}", 1)
         connectionStage.value = ConnectionStage.STARTING
-        connectionHint.value = "Подключение WireGuard к VPS…"
-        config.value = configStr
+        connectionHint.value = "Запуск Xray (VLESS/${vlessCfg.network.uppercase()})…"
         running.value = true
         startInProgress = false
         transportRestartInProgress = false
-        wireGuardStarted = true
-        wireGuardExpectedAtMs = System.currentTimeMillis()
 
-        withContext(Dispatchers.Main) {
-            try {
-                wgHelper?.startTunnel(configStr)
-                connectionStage.value = ConnectionStage.VPN_READY
-                connectionHint.value = ""
-                markConnectedIfNeeded()
-                updateLog("ready", "[READY] Скоростной режим — VPN активен ✓", 2, false)
-            } catch (e: Exception) {
-                wireGuardStarted = false
-                wireGuardExpectedAtMs = 0L
-                running.value = false
-                connectionStage.value = ConnectionStage.FAILED
-                connectionHint.value = "Не удалось подключиться к VPS ($endpoint)"
-                updateLog("vpn_start_error", "Ошибка запуска VPN: ${e.readableMessage()}", 99, true)
-            }
+        try {
+            val helper = xrayHelper ?: XrayHelper(context).also { xrayHelper = it }
+            val configJson = helper.generateConfig(vlessCfg)
+            config.value = configJson
+            helper.start(configJson)
+            connectionStage.value = ConnectionStage.VPN_READY
+            connectionHint.value = ""
+            markConnectedIfNeeded()
+            updateLog("ready", "[READY] Скоростной режим — Xray прокси активен ✓ (SOCKS5 :${helper.socksPort()})", 2, false)
+        } catch (e: Exception) {
+            running.value = false
+            connectionStage.value = ConnectionStage.FAILED
+            connectionHint.value = "Не удалось запустить Xray ($endpoint)"
+            updateLog("vpn_start_error", "Ошибка запуска Xray: ${e.readableMessage()}", 99, true)
         }
     }
 
@@ -1054,6 +1058,7 @@ object TunnelManager {
         startInProgress = false
         transportRestartInProgress = false
         scope.launch(Dispatchers.Main) {
+            xrayHelper?.stop()
             wgHelper?.stopTunnel()
         }
         killProcess()
@@ -1075,6 +1080,7 @@ object TunnelManager {
 
     suspend fun stopAndWait() {
         withContext(Dispatchers.Main) {
+            xrayHelper?.stop()
             wgHelper?.stopTunnel()
         }
         withContext(Dispatchers.IO) {

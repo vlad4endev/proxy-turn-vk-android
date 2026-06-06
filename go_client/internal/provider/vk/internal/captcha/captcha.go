@@ -144,7 +144,16 @@ func Solve(
 
 	s := &captchaSession{ctx: ctx, client: client, profile: profile, savedProfile: savedProfile, log: l}
 
-	for attempt := 1; attempt <= captchaMaxAttempts; attempt++ {
+	return s.solveWithMaxAttempts(captchaErr, streamID, captchaMaxAttempts)
+}
+
+func (s *captchaSession) solveWithMaxAttempts(captchaErr *Error, streamID int, maxAttempts int) (string, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	l := s.logger()
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		token, solveErr := s.solveOnce(captchaErr)
 		if solveErr == nil {
 			return token, nil
@@ -154,16 +163,38 @@ func Solve(
 			return "", solveErr
 		}
 
-		backoffSteps := min(attempt, 10)
-		timer := time.NewTimer(time.Duration(backoffSteps) * 500 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return "", ctx.Err()
-		case <-timer.C:
+		if attempt < maxAttempts {
+			backoffSteps := min(attempt, 10)
+			timer := time.NewTimer(time.Duration(backoffSteps) * 500 * time.Millisecond)
+			select {
+			case <-s.ctx.Done():
+				timer.Stop()
+				return "", s.ctx.Err()
+			case <-timer.C:
+			}
 		}
 	}
 	return "", fmt.Errorf("captcha attempts exhausted")
+}
+
+// SolveWithMaxAttempts — как Solve, но с явным лимитом попыток solveOnce.
+func SolveWithMaxAttempts(
+	ctx context.Context,
+	captchaErr *Error,
+	streamID int,
+	client tlsclient.HttpClient,
+	profile browserprofile.Profile,
+	savedProfile *browserprofile.Saved,
+	log logx.Logger,
+	maxAttempts int,
+) (string, error) {
+	if captchaErr == nil || captchaErr.SessionToken == "" {
+		return "", fmt.Errorf("no session_token in redirect_uri")
+	}
+	l := logx.OrNop(log)
+	l.Infof("[STREAM %d] [Captcha] Solving VK Smart Captcha automatically...", streamID)
+	s := &captchaSession{ctx: ctx, client: client, profile: profile, savedProfile: savedProfile, log: l}
+	return s.solveWithMaxAttempts(captchaErr, streamID, maxAttempts)
 }
 
 func (s *captchaSession) solveOnce(captchaErr *Error) (string, error) {

@@ -44,3 +44,37 @@ func DefaultAutoSolve(
 	log.Infof("[STREAM %d] [Captcha] solver succeeded", streamID)
 	return successToken, nil
 }
+
+// AutoSolveWithMaxAttempts запускает HTTP-авторешатель с заданным числом попыток solveOnce.
+func AutoSolveWithMaxAttempts(
+	ctx context.Context,
+	captchaErr *captcha.Error,
+	streamID int,
+	client tlsclient.HttpClient,
+	profile browserprofile.Profile,
+	maxAttempts int,
+) (string, error) {
+	log := captcha.Log
+	log.Infof("[STREAM %d] [Captcha] Solving captcha...", streamID)
+
+	if captchaErr.SessionToken == "" {
+		return "", fmt.Errorf("no session_token in redirect_uri for auto-solve")
+	}
+	if captchaErr.RedirectURI == "" {
+		return "", fmt.Errorf("no redirect_uri for auto-solve")
+	}
+
+	var savedProfile *browserprofile.Saved
+	if sp, err := browserprofile.Load(); err == nil {
+		log.Infof("[STREAM %d] [Captcha] Using saved real browser profile", streamID)
+		savedProfile = sp
+		profile = sp.Profile
+	}
+
+	successToken, err := captcha.SolveWithMaxAttempts(ctx, captchaErr, streamID, client, profile, savedProfile, log, maxAttempts)
+	if err != nil {
+		return "", err
+	}
+	log.Infof("[STREAM %d] [Captcha] solver succeeded", streamID)
+	return successToken, nil
+}

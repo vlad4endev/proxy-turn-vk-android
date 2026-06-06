@@ -31,6 +31,9 @@ type Config struct {
 	// ManualOnly форсирует ручной путь captcha с первой попытки.
 	ManualOnly bool
 
+	// CaptchaMode — auto | wv | rjs (из -captcha-mode).
+	CaptchaMode string
+
 	// StreamsPerCache — делитель streamID → cacheID. <=0 → дефолт (10).
 	StreamsPerCache int
 
@@ -73,6 +76,7 @@ func New(cfg Config, solver ManualSolverFunc) (*Provider, error) {
 		Credentials:     cfg.Credentials,
 		Dialer:          cfg.Dialer,
 		ManualOnly:      cfg.ManualOnly,
+		CaptchaMode:     cfg.CaptchaMode,
 		StreamsPerCache: cfg.StreamsPerCache,
 		StreamsAlive:    cfg.StreamsAlive,
 		ManualSolver:    solver,
@@ -104,6 +108,11 @@ func (p *Provider) BackoffUntilUnix() int64 { return p.auth.BackoffUntilUnix() }
 
 // Name реализует provider.Provider.
 func (*Provider) Name() string { return "vk" }
+
+// SetCaptchaResultChannel подключает IPC-канал для WebView-решателя captcha.
+func SetCaptchaResultChannel(ch chan string) {
+	vkauth.SetCaptchaResultChannel(ch)
+}
 
 // DefaultManualSolver — стандартный manual-captcha solver, использует
 // internal/provider/vk/internal/captcha/manual (HTTP-сервер 127.0.0.1:8765 + браузер).

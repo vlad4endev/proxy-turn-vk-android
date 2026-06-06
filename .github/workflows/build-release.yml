@@ -53,7 +53,7 @@ jobs:
         with:
           go-version: "1.26.x"
           cache: true
-          cache-dependency-path: go.mod
+          cache-dependency-path: go_client/go.sum
 
       - name: Generate Go sums
         shell: bash
@@ -62,6 +62,41 @@ jobs:
 
           echo "== Root Go module =="
           go mod tidy
+
+          echo "== Go client module =="
+          cd go_client
+          go mod tidy
+
+      - name: Build Android libclient from go_client
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          mkdir -p app/src/main/jniLibs/armeabi-v7a
+          mkdir -p app/src/main/jniLibs/x86_64
+          mkdir -p build/go-client
+
+          cd go_client
+          build_client() {
+            local goos="$1"
+            local goarch="$2"
+            local out="$3"
+            echo "== Build client ${goos}/${goarch} =="
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags="-s -w -checklinkname=0" -o "../${out}" .
+            chmod +x "../${out}"
+          }
+
+          build_client android arm64 app/src/main/jniLibs/arm64-v8a/libclient.so
+          build_client android arm app/src/main/jniLibs/armeabi-v7a/libclient.so
+          build_client android amd64 app/src/main/jniLibs/x86_64/libclient.so
+
+          cp ../app/src/main/jniLibs/arm64-v8a/libclient.so ../build/go-client/libclient-arm64-v8a.so
+          cp ../app/src/main/jniLibs/armeabi-v7a/libclient.so ../build/go-client/libclient-armeabi-v7a.so
+          cp ../app/src/main/jniLibs/x86_64/libclient.so ../build/go-client/libclient-x86_64.so
+
+          echo "Built JNI libraries:"
+          find ../app/src/main/jniLibs -type f -name "libclient.so" -exec ls -lh {} \;
 
       - name: Build Linux server binaries
         shell: bash
@@ -102,37 +137,6 @@ jobs:
 
           echo "Server asset:"
           ls -lh app/src/main/assets/${SERVER_BINARY_NAME}
-
-      - name: Download free-turn-proxy client for Android
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p app/src/main/jniLibs/arm64-v8a
-          mkdir -p app/src/main/jniLibs/armeabi-v7a
-          mkdir -p app/src/main/jniLibs/x86_64
-          mkdir -p build/go-client
-
-          # arm64 (основной)
-          curl -L -o app/src/main/jniLibs/arm64-v8a/libclient.so \
-            https://github.com/samosvalishe/free-turn-proxy/releases/latest/download/client-android-arm64
-          chmod +x app/src/main/jniLibs/arm64-v8a/libclient.so
-
-          # armeabi-v7a (старые устройства)
-          curl -L -o app/src/main/jniLibs/armeabi-v7a/libclient.so \
-            https://github.com/samosvalishe/free-turn-proxy/releases/latest/download/client-android-arm
-          chmod +x app/src/main/jniLibs/armeabi-v7a/libclient.so
-
-          # x86_64 (эмулятор)
-          curl -L -o app/src/main/jniLibs/x86_64/libclient.so \
-            https://github.com/samosvalishe/free-turn-proxy/releases/latest/download/client-android-amd64
-          chmod +x app/src/main/jniLibs/x86_64/libclient.so
-
-          cp app/src/main/jniLibs/arm64-v8a/libclient.so build/go-client/libclient-arm64-v8a.so
-          cp app/src/main/jniLibs/armeabi-v7a/libclient.so build/go-client/libclient-armeabi-v7a.so
-          cp app/src/main/jniLibs/x86_64/libclient.so build/go-client/libclient-x86_64.so
-
-          echo "Downloaded JNI libraries:"
-          find app/src/main/jniLibs -type f -name "libclient.so" -exec ls -lh {} \;
 
       - name: Make Gradle wrapper executable
         shell: bash

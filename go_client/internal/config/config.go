@@ -79,6 +79,7 @@ type VKOpts struct {
 	Link           string // -link (нормализован до join-кода)
 	StreamsPerCred int    // -streams-per-cred
 	ManualCaptcha  bool   // -manual-captcha
+	CaptchaMode    string // -captcha-mode: auto | wv | rjs
 }
 
 // YandexOpts — опции Яндекс Телемост (только клиент, провайдер "yandex").
@@ -162,6 +163,7 @@ func ParseClient(args []string, errOut io.Writer) (*Client, error) {
 	streamsPerCred := fs.Int("streams-per-cred", defaultStreamsPerCache, "TURN-потоков на один кеш VK-creds; только -provider vk")
 	debug := fs.Bool("debug", false, "подробные debug-логи")
 	manualCaptcha := fs.Bool("manual-captcha", false, "ручная VK captcha в браузере вместо авто; только -provider vk")
+	captchaMode := fs.String("captcha-mode", "auto", "режим VK captcha: auto | wv | rjs; только -provider vk")
 	dnsMode := fs.String("dns-mode", dnsModeAuto, "резолвер клиента: plain | doh | auto")
 	dnsServers := fs.String("dns-servers", "", "свои UDP/53 DNS через запятую: ip[:port][,ip[:port]...]")
 	clientID := fs.String("client-id", "", "уникальный ID клиента (автогенерация если не задан)")
@@ -193,6 +195,7 @@ func ParseClient(args []string, errOut io.Writer) (*Client, error) {
 		VK: VKOpts{
 			StreamsPerCred: *streamsPerCred,
 			ManualCaptcha:  *manualCaptcha,
+			CaptchaMode:    normalizeCaptchaMode(*captchaMode),
 		},
 		DNS: DNSOpts{
 			Mode: *dnsMode,
@@ -400,4 +403,13 @@ func serverProxyMode(mode string) ProxyMode {
 		return ProxyModeTCPFwd
 	}
 	return ProxyModeUDP
+}
+
+func normalizeCaptchaMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "wv", "rjs":
+		return strings.ToLower(strings.TrimSpace(mode))
+	default:
+		return "auto"
+	}
 }

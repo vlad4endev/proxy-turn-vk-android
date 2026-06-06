@@ -417,7 +417,7 @@ fun TunnelTab() {
         } else if (vkHash.isBlank()) {
             Toast.makeText(
                 context,
-                "Неверная ссылка: vk.com/call/join/... или https://vk.com/call/join/...",
+                "Неверная ссылка: vk.com/call/join/... или vk.ru/call/join/...",
                 Toast.LENGTH_LONG
             ).show()
         } else {
@@ -1767,13 +1767,19 @@ private fun TrafficBox(
 /** Полная ссылка VK-звонка или Яндекс Телемост для передачи в туннель. */
 private fun parseVkHash(input: String): String {
     val trimmed = input.trim()
-    if (trimmed.contains("vk.com/call/join/")) return trimmed
+    if (trimmed.isBlank()) return ""
+
     if (trimmed.contains("telemost", ignoreCase = true) ||
         trimmed.contains("ya.ru/telemost", ignoreCase = true)
     ) {
         return trimmed
     }
-    return ""
+
+    if (trimmed.contains("call/join/", ignoreCase = true)) {
+        return trimmed
+    }
+
+    return VkHashParser.parse(trimmed)
 }
 
 private fun formatRemaining(seconds: Long): String {

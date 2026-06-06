@@ -3,6 +3,7 @@ package vkauth
 import (
 	"context"
 	"net"
+	"strings"
 
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/browserprofile"
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/captcha"
@@ -62,3 +63,12 @@ type ManualSolveFunc func(
 	captchaErr *captcha.Error,
 	dialer net.Dialer,
 ) (token, key string, err error)
+
+func normalizeCaptchaMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "wv", "rjs":
+		return strings.ToLower(strings.TrimSpace(mode))
+	default:
+		return "auto"
+	}
+}

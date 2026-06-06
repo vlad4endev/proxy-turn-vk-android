@@ -28,6 +28,9 @@ type Config struct {
 	// ManualOnly форсирует ручной путь captcha с первой попытки.
 	ManualOnly bool
 
+	// CaptchaMode — auto | wv | rjs (из -captcha-mode).
+	CaptchaMode string
+
 	// StreamsPerCache — делитель streamID → cacheID. <=0 → дефолт.
 	StreamsPerCache int
 
@@ -52,6 +55,7 @@ type Client struct {
 	credentials []VKCredentials
 	dialer      net.Dialer
 	manualOnly  bool
+	captchaMode string
 	streamsFn   func() int32
 	autoSolver  AutoSolveFunc
 	manualSolve ManualSolveFunc
@@ -79,6 +83,7 @@ func New(cfg Config) *Client {
 		credentials: cfg.Credentials,
 		dialer:      cfg.Dialer,
 		manualOnly:  cfg.ManualOnly,
+		captchaMode: normalizeCaptchaMode(cfg.CaptchaMode),
 		streamsFn:   cfg.StreamsAlive,
 		autoSolver:  cfg.AutoSolver,
 		manualSolve: cfg.ManualSolver,

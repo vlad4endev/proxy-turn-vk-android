@@ -41,10 +41,11 @@ object CaptchaWebViewActivityLauncher {
     var isCaptchaPending = false
 
     fun checkAndShowPendingCaptcha(context: Context) {
-        val intent = pendingIntentToStart ?: return
-        if (activeActivity == null) {
-            context.startActivity(intent)
-        }
+        if (pendingIntentToStart == null) return
+        pendingIntentToStart = null
+        isCaptchaPending = false
+        clearCaptchaNotification(context)
+        TunnelManager.showCaptchaModal()
     }
 
     fun launch(context: Context) {
@@ -57,24 +58,14 @@ object CaptchaWebViewActivityLauncher {
     }
 
     fun openManualCaptcha(context: Context) {
-        if (activeActivity != null || isCaptchaPending) return
-
+        if (isCaptchaPending) return
         isCaptchaPending = true
         showCaptchaNotification(context)
-
-        val intent = Intent(context, CaptchaWebViewActivity::class.java).apply {
-            putExtra("captchaUrl", CAPTCHA_PROXY_URL)
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
-            )
-        }
-        pendingIntentToStart = intent
-
+        pendingIntentToStart = Intent(context, CaptchaWebViewActivity::class.java)
         if (MainActivity.isForeground) {
-            context.startActivity(intent)
+            isCaptchaPending = false
+            pendingIntentToStart = null
+            TunnelManager.showCaptchaModal()
         }
     }
 

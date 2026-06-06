@@ -43,18 +43,22 @@ object VkHashParser {
             "vk.com/call/join/",
             "vk.ru/call/join/"
         )
+        var prefixStripped = false
         for (prefix in urlPrefixes) {
             if (lower.startsWith(prefix)) {
                 s = s.substring(prefix.length)
+                prefixStripped = true
                 break
             }
         }
 
         JOIN_RE.find(s)?.groupValues?.get(1)?.let { return cleanTail(it) }
 
-        val joinIdx = lower.indexOf("/call/join/")
-        if (joinIdx >= 0) {
-            s = s.substring(joinIdx + "/call/join/".length)
+        if (!prefixStripped) {
+            val joinIdx = lower.indexOf("/call/join/")
+            if (joinIdx >= 0) {
+                s = s.substring(joinIdx + "/call/join/".length)
+            }
         }
 
         if (lower.startsWith("vk:")) {
@@ -121,9 +125,12 @@ object VkHashParser {
                         "http://m.vk.com/call/join/",
                         "https://vk.me/call/join/",
                         "http://vk.me/call/join/",
+                        "https://vk.ru/call/join/",
+                        "http://vk.ru/call/join/",
                         "m.vk.com/call/join/",
                         "vk.me/call/join/",
                         "vk.com/call/join/",
+                        "vk.ru/call/join/",
                         "https://telemost.yandex.ru/j/",
                         "http://telemost.yandex.ru/j/",
                         "telemost.yandex.ru/j/",

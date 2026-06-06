@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -32,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,6 +51,7 @@ import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
 
 private const val CAPTCHA_PROXY_URL = "http://127.0.0.1:8765"
+private val CAPTCHA_RETRY_DELAYS_MS = longArrayOf(500L, 1_000L, 2_000L)
 
 private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
@@ -127,6 +130,28 @@ fun CaptchaModal(
     val userAgent = storedUserAgent.ifBlank { DEFAULT_USER_AGENT }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var retryAttempt by remember { mutableIntStateOf(0) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    fun scheduleRetry(errorDescription: String) {
+        if (retryAttempt >= CAPTCHA_RETRY_DELAYS_MS.size) {
+            mainHandler.post {
+                isLoading = false
+                loadError = errorDescription
+            }
+            return
+        }
+        val delayMs = CAPTCHA_RETRY_DELAYS_MS[retryAttempt]
+        retryAttempt += 1
+        mainHandler.post {
+            isLoading = true
+            loadError = "Повтор загрузки ($retryAttempt/${CAPTCHA_RETRY_DELAYS_MS.size})…"
+        }
+        mainHandler.postDelayed({
+            webViewRef?.loadUrl(CAPTCHA_PROXY_URL)
+        }, delayMs)
+    }
 
     Box(
         modifier = Modifier
@@ -179,6 +204,7 @@ fun CaptchaModal(
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
+                            webViewRef = this
                             setBackgroundColor(android.graphics.Color.TRANSPARENT)
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -227,10 +253,35 @@ fun CaptchaModal(
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     view?.evaluateJavascript(hideElementsJSCode, null)
-                                    mainHandler.post { isLoading = false }
+                                    mainHandler.post {
+                                        isLoading = false
+                                        loadError = null
+                                    }
                                     if (url?.contains("local-captcha-result") == true) {
                                         mainHandler.post { onCaptchaSolved() }
                                     }
+                                }
+
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    super.onReceivedError(view, request, error)
+                                    if (request?.isForMainFrame != true) return
+                                    val description = error?.description?.toString() ?: "Не удалось открыть страницу"
+                                    scheduleRetry(description)
+                                }
+
+                                override fun onReceivedHttpError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    errorResponse: WebResourceResponse?
+                                ) {
+                                    super.onReceivedHttpError(view, request, errorResponse)
+                                    if (request?.isForMainFrame != true) return
+                                    val code = errorResponse?.statusCode ?: 0
+                                    scheduleRetry("HTTP $code")
                                 }
 
                                 override fun onReceivedSslError(
@@ -241,6 +292,7 @@ fun CaptchaModal(
                                     val url = error.url ?: ""
                                     if (
                                         url.contains("127.0.0.1") ||
+                                        url.contains("localhost") ||
                                         url.contains("vk.ru") ||
                                         url.contains("vk.com") ||
                                         url.contains("okcdn.ru")
@@ -265,6 +317,20 @@ fun CaptchaModal(
                             .size(48.dp),
                         color = MaterialTheme.colorScheme.primary
                     )
+                }
+
+                loadError?.let { errorText ->
+                    if (!isLoading) {
+                        Text(
+                            text = errorText,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(16.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
 

@@ -39,6 +39,9 @@ func TestParseClient_Defaults(t *testing.T) {
 	if c.VK.Link != "abcdef" {
 		t.Errorf("VK.Link: %q (expected abcdef)", c.VK.Link)
 	}
+	if c.VK.CaptchaMode != "auto" {
+		t.Errorf("VK.CaptchaMode default: %q (expected auto)", c.VK.CaptchaMode)
+	}
 	if c.Obf.Key != nil {
 		t.Errorf("Obf.Key should be nil when -obf-profile absent")
 	}
