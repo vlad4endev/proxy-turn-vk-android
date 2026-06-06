@@ -82,18 +82,21 @@ build_xray() {
     local goarch="$1"
     local abi="$2"
     local cc="$3"
-    local extra_goarch=()
-    if [[ "$goarch" == "arm" ]]; then
-      extra_goarch=(GOARM=7)
-    fi
 
     echo "== Xray-core $XRAY_TAG android/$goarch -> $abi/libxray.so =="
     (
       cd "$tmp/Xray-core"
-      CGO_ENABLED=1 GOOS=android GOARCH="$goarch" CC="$cc" "${extra_goarch[@]}" \
-        go build -trimpath -buildvcs=false \
-        -ldflags="-s -w -buildid= -checklinkname=0" \
-        -o "$JNI_DIR/$abi/libxray.so" ./main
+      if [[ "$goarch" == "arm" ]]; then
+        GOARM=7 CGO_ENABLED=1 GOOS=android GOARCH="$goarch" CC="$cc" \
+          go build -trimpath -buildvcs=false \
+          -ldflags="-s -w -buildid= -checklinkname=0" \
+          -o "$JNI_DIR/$abi/libxray.so" ./main
+      else
+        CGO_ENABLED=1 GOOS=android GOARCH="$goarch" CC="$cc" \
+          go build -trimpath -buildvcs=false \
+          -ldflags="-s -w -buildid= -checklinkname=0" \
+          -o "$JNI_DIR/$abi/libxray.so" ./main
+      fi
       chmod +x "$JNI_DIR/$abi/libxray.so"
     )
   }
