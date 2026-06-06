@@ -4,7 +4,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -14,9 +13,9 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -31,7 +30,13 @@ import kotlinx.coroutines.launch
 private const val TUNNEL_NOTIFICATION_CHANNEL_ID = "wdtt_tunnel_v4"
 private const val TUNNEL_NOTIFICATION_ID = 1
 
-class TunnelService : Service() {
+class TunnelService : VpnService() {
+
+    companion object {
+        @Volatile
+        var instance: TunnelService? = null
+    }
+
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var updateJob: Job? = null
@@ -48,6 +53,7 @@ class TunnelService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
         // Сразу берем лок при создании
         acquireWakeLock()
@@ -461,6 +467,7 @@ class TunnelService : Service() {
     }
 
     override fun onDestroy() {
+        instance = null
         super.onDestroy()
         networkCallback?.let {
             connectivityManager?.unregisterNetworkCallback(it)
@@ -475,5 +482,10 @@ class TunnelService : Service() {
         stopTunnel()
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    /** Вызывается системой, если пользователь отозвал VPN-разрешение. */
+    override fun onRevoke() {
+        Log.w("TunnelService", "VPN-разрешение отозвано пользователем")
+        stopTunnel()
+        super.onRevoke()
+    }
 }

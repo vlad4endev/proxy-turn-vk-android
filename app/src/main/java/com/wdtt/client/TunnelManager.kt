@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 import androidx.compose.runtime.Stable
+import com.wdtt.client.xray.Tun2SocksHelper
 import com.wdtt.client.xray.XrayHelper
 import com.wdtt.client.xray.parseVlessUri
 
@@ -95,6 +96,7 @@ object TunnelManager {
     private var yandexCredsOk = false
     private var wgHelper: WireGuardHelper? = null
     private var xrayHelper: XrayHelper? = null
+    private var tun2socksHelper: Tun2SocksHelper? = null
     @Volatile
     private var wireGuardStarted = false
 
@@ -301,13 +303,13 @@ object TunnelManager {
         connectionSnapshot.value = TunnelConnectionSnapshot(
             peer = endpoint,
             listen = "127.0.0.1:${xrayHelper?.socksPort() ?: 10808}",
-            hashMode = "Скоростной (Xray)",
+            hashMode = "Скоростной (Xray + TUN)",
             hashCount = 0,
             workers = 0,
             captchaMode = "—",
             captchaSolve = "—"
         )
-        updateLog("path_start", "[ПУТЬ] Телефон → ${vlessCfg.serverHost}:${vlessCfg.serverPort} (VLESS/${vlessCfg.network.uppercase()})", 0)
+        updateLog("path_start", "[ПУТЬ] Телефон → TUN → SOCKS5 → ${vlessCfg.serverHost}:${vlessCfg.serverPort} (VLESS/${vlessCfg.network.uppercase()})", 0)
         updateLog("server_peer", "[СЕРВЕР] ${vlessCfg.serverHost}:${vlessCfg.serverPort} — ${vlessCfg.remark}", 1)
         connectionStage.value = ConnectionStage.STARTING
         connectionHint.value = "Запуск Xray (VLESS/${vlessCfg.network.uppercase()})…"
@@ -315,20 +317,58 @@ object TunnelManager {
         startInProgress = false
         transportRestartInProgress = false
 
+        // ── 1. Запускаем Xray (SOCKS5 на :10808) ─────────────────────────
         try {
             val helper = xrayHelper ?: XrayHelper(context).also { xrayHelper = it }
             val configJson = helper.generateConfig(vlessCfg)
             config.value = configJson
             helper.start(configJson)
-            connectionStage.value = ConnectionStage.VPN_READY
-            connectionHint.value = ""
-            markConnectedIfNeeded()
-            updateLog("ready", "[READY] Скоростной режим — Xray прокси активен ✓ (SOCKS5 :${helper.socksPort()})", 2, false)
+            updateLog("xray_started", "[XRAY] SOCKS5 прокси запущен (:${helper.socksPort()})", 1, false)
         } catch (e: Exception) {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
             connectionHint.value = "Не удалось запустить Xray ($endpoint)"
             updateLog("vpn_start_error", "Ошибка запуска Xray: ${e.readableMessage()}", 99, true)
+            return
+        }
+
+        delay(2000) // ждём инициализации Xray
+
+        // ── 2. Поднимаем TUN через VpnService и запускаем tun2socks ──────
+        connectionHint.value = "Создание TUN-интерфейса…"
+        val service = TunnelService.instance
+        if (service == null) {
+            running.value = false
+            connectionStage.value = ConnectionStage.FAILED
+            connectionHint.value = "TunnelService не запущен"
+            updateLog("tun_error", "Ошибка: TunnelService.instance == null", 99, true)
+            return
+        }
+
+        try {
+            tun2socksHelper = Tun2SocksHelper(service)
+            tun2socksHelper!!.start("127.0.0.1", xrayHelper?.socksPort() ?: 10808)
+            updateLog("tun_started", "[TUN] Интерфейс создан, tun2socks запущен", 1, false)
+        } catch (e: Exception) {
+            running.value = false
+            connectionStage.value = ConnectionStage.FAILED
+            connectionHint.value = "Ошибка создания TUN"
+            updateLog("tun_error", "Ошибка запуска tun2socks: ${e.readableMessage()}", 99, true)
+            return
+        }
+
+        delay(1000) // ждём поднятия TUN
+
+        if (tun2socksHelper?.isRunning() == true) {
+            connectionStage.value = ConnectionStage.VPN_READY
+            connectionHint.value = ""
+            markConnectedIfNeeded()
+            updateLog("ready", "[READY] Скоростной режим — TUN активен, весь трафик через Xray ✓", 2, false)
+        } else {
+            running.value = false
+            connectionStage.value = ConnectionStage.FAILED
+            connectionHint.value = "tun2socks не запустился"
+            updateLog("tun_dead", "tun2socks завершился сразу после старта", 99, true)
         }
     }
 
@@ -797,6 +837,19 @@ object TunnelManager {
                         launchWireGuardIfNeeded()
                     }
 
+                    // Дополнительные триггеры: TURN/DTLS-сигналы из Go-бинаря
+                    run {
+                        val activeVal = Regex("""active=(\d+)""").find(lineTrim)
+                            ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                        if (activeVal > 0 ||
+                            lineTrim.contains("Established DTLS", ignoreCase = true) ||
+                            lineTrim.contains("relay connected", ignoreCase = true) ||
+                            lineTrim.contains("TURN urls", ignoreCase = true)
+                        ) {
+                            launchWireGuardIfNeeded()
+                        }
+                    }
+
                     if (line.contains("╔") && line.contains("WireGuard")) {
                         collectingConfig = true
                         configBuilder.clear()
@@ -1058,6 +1111,8 @@ object TunnelManager {
         startInProgress = false
         transportRestartInProgress = false
         scope.launch(Dispatchers.Main) {
+            tun2socksHelper?.stop()
+            tun2socksHelper = null
             xrayHelper?.stop()
             wgHelper?.stopTunnel()
         }
@@ -1080,6 +1135,8 @@ object TunnelManager {
 
     suspend fun stopAndWait() {
         withContext(Dispatchers.Main) {
+            tun2socksHelper?.stop()
+            tun2socksHelper = null
             xrayHelper?.stop()
             wgHelper?.stopTunnel()
         }
