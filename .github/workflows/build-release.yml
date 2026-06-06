@@ -116,6 +116,16 @@ jobs:
           echo "Built JNI libraries:"
           find ../app/src/main/jniLibs -type f -name "libclient.so" -exec ls -lh {} \;
 
+      - name: Build speed-mode native libraries (Xray + hev-socks5-tunnel)
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-native-speed.sh
+          ANDROID_NDK_HOME="${ANDROID_NDK_HOME}" ANDROID_MIN_API="${ANDROID_MIN_API}" \
+            ./scripts/build-native-speed.sh
+          echo "Speed-mode native libraries:"
+          find app/src/main/jniLibs -type f \( -name "libxray.so" -o -name "libhev-socks5-tunnel.so" \) -exec ls -lh {} \;
+
       - name: Build Linux server binaries
         shell: bash
         run: |

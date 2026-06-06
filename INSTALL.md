@@ -43,7 +43,25 @@ object HardcodedConfig {
 ./gradlew assembleRelease
 ```
 
-Перед сборкой нужны `libclient.so` (NDK/CI) и при необходимости `app/src/main/assets/server` — см. `.github/workflows/build-release.yml`.
+Перед сборкой нужны нативные библиотеки в `app/src/main/jniLibs/`:
+
+| Библиотека | Режим | Как получить |
+|------------|-------|--------------|
+| `libclient.so` | VK/TURN туннель | CI или `go build` из `go_client/` (см. workflow) |
+| `libxray.so` | Скоростной (VLESS) | `./scripts/build-native-speed.sh` |
+| `libhev-socks5-tunnel.so` | Скоростной (TUN) | `./scripts/build-native-speed.sh` |
+
+Для скоростного режима (Xray + TUN) после установки NDK и Go:
+
+```bash
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"   # путь к вашему NDK
+./scripts/build-native-speed.sh
+./gradlew assembleRelease
+```
+
+Без `libxray.so` и `libhev-socks5-tunnel.so` скоростной режим не запустится. CI собирает всё автоматически — см. `.github/workflows/build-release.yml`.
+
+При необходимости также нужен `app/src/main/assets/server` — см. workflow.
 
 ## Поведение
 

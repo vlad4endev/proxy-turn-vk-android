@@ -327,6 +327,11 @@ object TunnelManager {
             val configJson = helper.generateConfigFromServer(server)
             config.value = configJson
             helper.start(configJson)
+            if (!helper.isRunning()) {
+                throw IllegalStateException(
+                    "libxray.so не найден — пересоберите APK (scripts/build-native-speed.sh)"
+                )
+            }
             updateLog("xray_started", "[XRAY] SOCKS5 прокси запущен (:${helper.socksPort()})", 1, false)
         } catch (e: Exception) {
             running.value = false
@@ -545,6 +550,13 @@ object TunnelManager {
                 transportRestartInProgress = false
                 startLogReader()
                 startWatchdog(context, params)
+                scope.launch {
+                    delay(5000)
+                    if (!wireGuardStarted && process?.isAlive == true) {
+                        if (!running.value) running.value = true
+                        launchWireGuardIfNeeded()
+                    }
+                }
                 if (linkProvider == LinkProvider.YANDEX) {
                     startYandexAuthTimeout()
                 }
@@ -907,6 +919,7 @@ object TunnelManager {
                         lineTrim.contains("TURN urls", ignoreCase = true) ||
                         lineTrim.contains("turn:", ignoreCase = true)
                     ) {
+                        if (!running.value) running.value = true
                         launchWireGuardIfNeeded()
                     }
 
