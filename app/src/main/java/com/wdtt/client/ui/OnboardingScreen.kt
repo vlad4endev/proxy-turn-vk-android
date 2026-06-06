@@ -56,7 +56,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D0B1A))
+            .background(SkyflowColors.Background)
             .pointerInput(currentPage) {
                 detectHorizontalDragGestures { _, dragAmount ->
                     if (dragAmount < -50 && currentPage < totalPages - 1) {
@@ -82,9 +82,9 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     label = "dot_width_$index"
                 )
                 val color = when {
-                    index < currentPage -> Color(0xFF4ADE80)
-                    index == currentPage -> Color(0xFF6366F1)
-                    else -> Color(0xFF1E1C3A)
+                    index < currentPage -> SkyflowColors.Connected
+                    index == currentPage -> SkyflowColors.Accent
+                    else -> SkyflowColors.Border
                 }
                 Box(
                     Modifier
@@ -148,7 +148,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         }
                     },
                 shape = RoundedCornerShape(24.dp),
-                color = Color(0xFF6366F1)
+                color = SkyflowColors.Accent
             ) {
                 Text(
                     text = when (currentPage) {

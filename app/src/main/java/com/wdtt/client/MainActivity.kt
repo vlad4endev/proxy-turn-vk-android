@@ -70,6 +70,7 @@ import com.wdtt.client.ui.InfoTab
 import com.wdtt.client.ui.LogsTab
 import com.wdtt.client.ui.OnboardingScreen
 import com.wdtt.client.ui.SkyflowColors
+import com.wdtt.client.ui.SkyflowShapes
 import com.wdtt.client.ui.TunnelTab
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -460,12 +461,11 @@ private fun ProxyNavigationBar(
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val colors = MaterialTheme.colorScheme
-    val selectedColor = SkyflowColors.Accent
+    val selectedColor = SkyflowColors.AccentLight
     val unselectedColor = SkyflowColors.TextMuted
     val shellColor = SkyflowColors.NavBg
-    val shellBorder = SkyflowColors.Border
-    val indicatorColor = SkyflowColors.Accent.copy(alpha = 0.18f)
+    val shellBorder = SkyflowColors.NavBorder
+    val indicatorColor = SkyflowColors.Accent.copy(alpha = 0.22f)
     val selectedVisualIndex = remember(selectedTab, navItems) {
         navItems.indexOfFirst { it.id == selectedTab }.coerceAtLeast(0)
     }
@@ -502,9 +502,9 @@ private fun ProxyNavigationBar(
         val indicatorOffset = trackPadding + itemWidth * dragVisualIndex
 
         Surface(
-            shape = RoundedCornerShape(28.dp),
+            shape = SkyflowShapes.NavBar,
             color = shellColor,
-            border = BorderStroke(0.5.dp, shellBorder),
+            border = BorderStroke(1.dp, shellBorder),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
             modifier = Modifier.fillMaxWidth()
@@ -512,14 +512,15 @@ private fun ProxyNavigationBar(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(72.dp)
+                    .height(68.dp)
             ) {
                 Surface(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = SkyflowShapes.NavIndicator,
                     color = indicatorColor,
+                    border = BorderStroke(0.5.dp, SkyflowColors.Accent.copy(alpha = 0.15f)),
                     modifier = Modifier
                         .offset(x = indicatorOffset)
-                        .padding(vertical = 6.dp)
+                        .padding(vertical = 5.dp)
                         .width(itemWidth)
                         .fillMaxHeight()
                 ) {}
@@ -537,7 +538,7 @@ private fun ProxyNavigationBar(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .clip(RoundedCornerShape(22.dp))
+                                .clip(SkyflowShapes.NavIndicator)
                                 .clickable { onTabSelected(item.id) },
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -551,8 +552,8 @@ private fun ProxyNavigationBar(
                                 )
                                 if (item.id == 3 && unreadErrors > 0) {
                                     Badge(
-                                        containerColor = if (tunnelRunning) colors.primary else WDTTColors.warning,
-                                        contentColor = colors.onPrimary,
+                                        containerColor = if (tunnelRunning) SkyflowColors.Accent else WDTTColors.warning,
+                                        contentColor = SkyflowColors.OnAccent,
                                         modifier = Modifier.offset(x = 12.dp, y = (-8).dp)
                                     ) {
                                         Text("$unreadErrors")
@@ -610,13 +611,13 @@ private val Android16OrbSmall: Shape = android16OrbShape(points = 16, innerRatio
 private fun AppBackdrop(modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
-    val baseBrush = remember(colors.background, colors.surface, colors.surfaceVariant) {
+    val baseBrush = remember(isDark) {
         Brush.verticalGradient(
             colors = if (isDark) {
                 listOf(
-                    lerp(colors.background, colors.surface, 0.18f),
-                    colors.background,
-                    lerp(colors.surfaceVariant, colors.background, 0.72f)
+                    SkyflowColors.Background,
+                    Color(0xFF0A0A16),
+                    SkyflowColors.Background
                 )
             } else {
                 listOf(
@@ -627,23 +628,25 @@ private fun AppBackdrop(modifier: Modifier = Modifier) {
             }
         )
     }
-    val topGlow = colors.primary.copy(alpha = if (isDark) 0.055f else 0.09f)
-    val leftGlow = if (isDark) {
-        colors.tertiary.copy(alpha = 0.045f)
-    } else {
-        lerp(colors.tertiary, colors.secondaryContainer, 0.74f).copy(alpha = 0.24f)
-    }
-    val bottomGlow = if (isDark) {
-        colors.primary.copy(alpha = 0.04f)
-    } else {
-        lerp(colors.secondary, colors.primaryContainer, 0.70f).copy(alpha = 0.22f)
-    }
+    val topOrbGlow = Brush.radialGradient(
+        colors = listOf(
+            SkyflowColors.Accent.copy(alpha = if (isDark) 0.14f else 0.10f),
+            Color.Transparent
+        )
+    )
+    val leftGlow = Brush.radialGradient(
+        colors = listOf(
+            Color(0xFF6366F1).copy(alpha = if (isDark) 0.10f else 0.08f),
+            Color.Transparent
+        )
+    )
+    val bottomGlow = Brush.radialGradient(
+        colors = listOf(
+            SkyflowColors.Connected.copy(alpha = if (isDark) 0.08f else 0.06f),
+            Color.Transparent
+        )
+    )
     val lightOrbOutline = colors.outlineVariant.copy(alpha = 0.26f)
-    val topOrbGlow = if (isDark) {
-        topGlow
-    } else {
-        lerp(colors.primary, colors.primaryContainer, 0.72f).copy(alpha = 0.32f)
-    }
 
     Box(
         modifier = modifier
@@ -654,7 +657,7 @@ private fun AppBackdrop(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .offset(x = (-86).dp, y = (-126).dp)
-                .size(258.dp)
+                .size(280.dp)
                 .clip(Android16OrbLarge)
                 .background(topOrbGlow)
                 .then(
@@ -665,7 +668,7 @@ private fun AppBackdrop(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset(x = (-44).dp, y = 28.dp)
-                .size(146.dp)
+                .size(160.dp)
                 .clip(Android16OrbSmall)
                 .background(leftGlow)
                 .then(
@@ -676,7 +679,7 @@ private fun AppBackdrop(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .offset(x = 62.dp, y = (-208).dp)
-                .size(198.dp)
+                .size(220.dp)
                 .clip(Android16OrbMedium)
                 .background(bottomGlow)
                 .then(

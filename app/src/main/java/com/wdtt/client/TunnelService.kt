@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
@@ -38,7 +40,9 @@ class TunnelService : Service() {
     // Network Monitoring
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var connectivityReceiver: BroadcastReceiver? = null
     private var lastNetworkChangeTime = 0L
+    private var lastTransportType = -1
     private val activeNetworks = mutableSetOf<Network>()
     private var isTunnelPaused = false
 
@@ -48,6 +52,7 @@ class TunnelService : Service() {
         // Сразу берем лок при создании
         acquireWakeLock()
         setupNetworkCallback()
+        setupConnectivityReceiver()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -183,17 +188,11 @@ class TunnelService : Service() {
                 super.onAvailable(network)
                 val wasEmpty = activeNetworks.isEmpty()
                 activeNetworks.add(network)
-                if (wasEmpty) {
-                    if (isTunnelPaused) {
-                        isTunnelPaused = false
-                        Log.d("TunnelService", "Сеть появилась, возобновляем туннель")
-                        TunnelManager.resume()
-                        updateNotification("Установка соединения...")
-                    } else {
-                        handleNetworkChange()
-                    }
-                } else {
-                    handleNetworkChange()
+                if (wasEmpty && isTunnelPaused) {
+                    isTunnelPaused = false
+                    Log.d("TunnelService", "Сеть появилась, возобновляем туннель")
+                    TunnelManager.resume()
+                    updateNotification("Установка соединения...")
                 }
             }
 
@@ -217,6 +216,65 @@ class TunnelService : Service() {
             .build()
             
         connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun setupConnectivityReceiver() {
+        connectivityReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action != ConnectivityManager.CONNECTIVITY_ACTION) return
+                if (!TunnelManager.running.value || isTunnelPaused) return
+
+                val transportType = getUnderlyingTransportType()
+                if (transportType == -1) return
+
+                val previous = lastTransportType
+                lastTransportType = transportType
+                if (previous == -1) return
+
+                val wasWifi = previous == NetworkCapabilities.TRANSPORT_WIFI
+                val wasCellular = previous == NetworkCapabilities.TRANSPORT_CELLULAR
+                val isWifi = transportType == NetworkCapabilities.TRANSPORT_WIFI
+                val isCellular = transportType == NetworkCapabilities.TRANSPORT_CELLULAR
+
+                if ((wasWifi && isCellular) || (wasCellular && isWifi)) {
+                    Log.d("TunnelService", "WiFi ↔ мобильная сеть, перезапуск libclient.so (WireGuard без изменений)")
+                    handleNetworkChange()
+                }
+            }
+        }
+
+        val filter = IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(connectivityReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(connectivityReceiver, filter)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun getUnderlyingTransportType(): Int {
+        val cm = connectivityManager ?: return -1
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            for (network in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) continue
+                return when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkCapabilities.TRANSPORT_WIFI
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkCapabilities.TRANSPORT_CELLULAR
+                    else -> continue
+                }
+            }
+            return -1
+        }
+        val info = cm.activeNetworkInfo ?: return -1
+        if (!info.isConnected) return -1
+        return when (info.type) {
+            ConnectivityManager.TYPE_WIFI -> NetworkCapabilities.TRANSPORT_WIFI
+            ConnectivityManager.TYPE_MOBILE -> NetworkCapabilities.TRANSPORT_CELLULAR
+            else -> -1
+        }
     }
     
     private fun handleNetworkChange() {
@@ -289,7 +347,7 @@ class TunnelService : Service() {
         updateJob = TunnelManager.scope.launch(Dispatchers.Main) {
             delay(1000)
             while (isActive) {
-                if (!TunnelManager.running.value && !isTunnelPaused) {
+                if (TunnelManager.shouldStopService() && !isTunnelPaused) {
                     // Туннель полностью остановлен (не на паузе) — убиваем сервис
                     stopSelf()
                     break
@@ -396,6 +454,13 @@ class TunnelService : Service() {
         networkCallback?.let {
             connectivityManager?.unregisterNetworkCallback(it)
         }
+        connectivityReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (_: IllegalArgumentException) {
+            }
+        }
+        connectivityReceiver = null
         stopTunnel()
     }
 

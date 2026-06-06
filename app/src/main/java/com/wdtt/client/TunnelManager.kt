@@ -94,6 +94,12 @@ object TunnelManager {
     @Volatile
     var isLoggingEnabled = true
 
+    @Volatile
+    private var startInProgress = false
+
+    @Volatile
+    private var transportRestartInProgress = false
+
     val running = MutableStateFlow(false)
     val logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val unreadErrorCount = MutableStateFlow(0)
@@ -174,12 +180,20 @@ object TunnelManager {
         }
     }
 
+    /** Сервис можно останавливать только когда туннель реально выключен или упал. */
+    fun shouldStopService(): Boolean = when (connectionStage.value) {
+        ConnectionStage.IDLE, ConnectionStage.FAILED -> true
+        else -> false
+    }
+
     fun start(context: Context, params: TunnelParams, isSwitching: Boolean = false) {
         if (running.value && !isSwitching) return
+        if (!isSwitching && startInProgress) return
         
         val appContext = context.applicationContext // Защита от Memory Leak
         
         if (!isSwitching) {
+            startInProgress = true
             clearLogs()
             connectionStage.value = ConnectionStage.STARTING
             connectionHint.value = ""
@@ -223,6 +237,8 @@ object TunnelManager {
                     connectionStage.value = ConnectionStage.FAILED
                     connectionHint.value = "Укажите ссылку vk.com/call/join/... или telemost.yandex.ru/j/..."
                     running.value = false
+                    startInProgress = false
+                    transportRestartInProgress = false
                     return@launch
                 }
 
@@ -250,6 +266,9 @@ object TunnelManager {
                 
                 if (!binaryFile.exists()) {
                     updateLog("binary_error", "Ошибка: Бинарный файл не найден", 99, true)
+                    connectionStage.value = ConnectionStage.FAILED
+                    startInProgress = false
+                    transportRestartInProgress = false
                     return@launch
                 }
 
@@ -285,6 +304,8 @@ object TunnelManager {
                 wrapAuthTimeoutCount = 0
                 lastActiveAtMs = 0L
                 running.value = true
+                startInProgress = false
+                transportRestartInProgress = false
                 startLogReader()
                 startWatchdog(appContext, params)
 
@@ -292,6 +313,9 @@ object TunnelManager {
                 updateLog("critical_start_error", "Критическая ошибка запуска: ${e.message}", 99, true)
                 e.printStackTrace()
                 running.value = false
+                connectionStage.value = ConnectionStage.FAILED
+                startInProgress = false
+                transportRestartInProgress = false
             }
         }
     }
@@ -643,7 +667,9 @@ object TunnelManager {
             } catch (e: Exception) {
                 updateLog("sys_error", "Процесс остановлен: ${e.message}", -1, true)
             } finally {
-                running.value = false
+                if (!transportRestartInProgress) {
+                    running.value = false
+                }
                 process = null
             }
         }
@@ -700,67 +726,73 @@ object TunnelManager {
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
             var zeroWorkersSince = 0L
-            delay(10_000)
             while (isActive && running.value) {
+                delay(30_000)
+                if (!isActive || !running.value) break
+
                 val proc = process
                 if (proc == null || !proc.isAlive) {
-                    updateLog("watchdog", "⚠ Процесс упал. Перезапуск...", 50, true)
-                    activeWorkers.value = 0
-                    forceRegenerateUA = true
-                    killProcess()
-                    delay(2000)
-                    if (running.value) {
-                        start(context, params, isSwitching = true)
-                    }
+                    restartClientSilently(context, params)
                     return@launch
                 }
 
-                val workers = activeWorkers.value
-                if (workers <= 0) {
-                    if (zeroWorkersSince == 0L) {
-                        zeroWorkersSince = System.currentTimeMillis()
-                    } else if (
-                        wrapAuthTimeoutCount >= 3 &&
-                        processStartedAtMs > 0L &&
-                        System.currentTimeMillis() - processStartedAtMs > 30_000 &&
-                        lastActiveAtMs == 0L &&
-                        !ManlCaptchaWebViewManager.isCaptchaPending &&
-                        !CaptchaWebViewActivityLauncher.isCaptchaPending
-                    ) {
-                        handleCriticalError("\uD83D\uDD12 Неверный пароль подключения или несовместимый WRAP. Воркеры остановлены.")
-                        return@launch
-                    } else if (
-                        System.currentTimeMillis() - zeroWorkersSince > 90_000 &&
-                        !ManlCaptchaWebViewManager.isCaptchaPending &&
-                        !CaptchaWebViewActivityLauncher.isCaptchaPending
-                    ) {
-                        updateLog("watchdog", "⚠ Зомби-процесс (0 воркеров 90с). Перезапуск...", 50, true)
-                        forceRegenerateUA = true
-                        killProcess()
-                        delay(2000)
-                        if (running.value) {
-                            start(context, params, isSwitching = true)
-                        }
-                        return@launch
-                    }
-                } else {
+                if (
+                    ManlCaptchaWebViewManager.isCaptchaPending ||
+                    CaptchaWebViewActivityLauncher.isCaptchaPending
+                ) {
                     zeroWorkersSince = 0L
+                    continue
                 }
 
-                delay(5_000)
+                if (activeWorkers.value > 0) {
+                    zeroWorkersSince = 0L
+                    continue
+                }
+
+                // До первых активных воркеров (VK/TURN/DTLS) нулевое значение нормально.
+                if (lastActiveAtMs == 0L) continue
+
+                if (zeroWorkersSince == 0L) {
+                    zeroWorkersSince = System.currentTimeMillis()
+                    continue
+                }
+
+                if (System.currentTimeMillis() - zeroWorkersSince >= 60_000) {
+                    restartClientSilently(context, params)
+                    return@launch
+                }
             }
+        }
+    }
+
+    private fun restartClientSilently(context: Context, params: TunnelParams) {
+        scheduleTransportRestart(context, params)
+    }
+
+    private fun scheduleTransportRestart(
+        context: Context,
+        params: TunnelParams,
+        logMessage: String? = null
+    ) {
+        if (transportRestartInProgress) return
+        transportRestartInProgress = true
+        logMessage?.let { updateLog("network_restart", it, 50, false) }
+        activeWorkers.value = 0
+        killProcess()
+        scope.launch {
+            delay(1500)
+            start(context, params, isSwitching = true)
         }
     }
 
     fun restartTransport() {
         val params = currentParams ?: return
         val context = lastContext ?: return
-        updateLog("network_restart", "[СЕТЬ] Перезапуск транспорта из-за смены сети...", 50, false)
-        killProcess()
-        scope.launch {
-            delay(1500)
-            start(context, params, isSwitching = true)
-        }
+        scheduleTransportRestart(
+            context,
+            params,
+            "[СЕТЬ] Перезапуск транспорта из-за смены сети..."
+        )
     }
 
     fun pause() {
@@ -770,11 +802,9 @@ object TunnelManager {
     }
 
     fun resume() {
-        if (currentParams != null && lastContext != null) {
-            scope.launch {
-                start(lastContext!!, currentParams!!, isSwitching = true)
-            }
-        }
+        val params = currentParams ?: return
+        val context = lastContext ?: return
+        scheduleTransportRestart(context, params)
     }
 
     private fun killProcess() {
@@ -842,6 +872,8 @@ object TunnelManager {
     }
 
     fun stop() {
+        startInProgress = false
+        transportRestartInProgress = false
         scope.launch(Dispatchers.Main) {
             wgHelper?.stopTunnel()
         }

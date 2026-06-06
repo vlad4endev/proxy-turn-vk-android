@@ -105,7 +105,6 @@ fun LogsTab() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(SkyflowColors.Background)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
@@ -151,7 +150,7 @@ fun LogsTab() {
 
         Card(
             modifier = Modifier.fillMaxSize(),
-            colors = CardDefaults.cardColors(containerColor = SkyflowColors.Background),
+            colors = CardDefaults.cardColors(containerColor = SkyflowColors.GlassSurface),
             shape = RoundedCornerShape(20.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
@@ -209,8 +208,8 @@ private fun ConnectionPathCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = SkyflowShapes.Card,
-        color = SkyflowColors.Surface,
-        border = SkyflowBorders.Default
+        color = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass
     ) {
         Column(Modifier.padding(10.dp)) {
             Row(
@@ -297,7 +296,7 @@ private fun LogFilterRow(selected: LogFilter, onSelect: (LogFilter) -> Unit) {
             Surface(
                 onClick = { onSelect(filter) },
                 shape = SkyflowShapes.Chip,
-                color = if (isSelected) SkyflowColors.Accent else SkyflowColors.Surface,
+                color = if (isSelected) SkyflowColors.Accent else SkyflowColors.GlassSurfaceElevated,
                 border = if (isSelected) null else SkyflowBorders.Accent
             ) {
                 Box(
@@ -362,8 +361,8 @@ fun LogLine(entry: LogEntry) {
                 )
             },
         shape = SkyflowShapes.LogEntry,
-        color = SkyflowColors.Surface,
-        border = SkyflowBorders.Default
+        color = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass
     ) {
         Row(
             modifier = Modifier

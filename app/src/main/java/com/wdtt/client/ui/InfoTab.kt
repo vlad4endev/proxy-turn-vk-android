@@ -85,7 +85,6 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(SkyflowColors.Background)
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 16.dp)
@@ -101,7 +100,7 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
                     modifier = Modifier
                         .size(64.dp)
                         .clip(SkyflowShapes.Logo)
-                        .background(SkyflowColors.Background)
+                        .background(SkyflowColors.GlassSurface)
                         .border(SkyflowBorders.Logo, SkyflowShapes.Logo),
                     contentAlignment = Alignment.Center
                 ) {
@@ -138,8 +137,8 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
                 Spacer(Modifier.height(6.dp))
                 Surface(
                     shape = SkyflowShapes.VersionBadge,
-                    color = SkyflowColors.Surface,
-                    border = SkyflowBorders.Accent
+                    color = SkyflowColors.GlassSurface,
+                    border = SkyflowBorders.GlassAccent
                 ) {
                     Text(
                         text = "v${BuildConfig.VERSION_NAME} · build ${BuildConfig.VERSION_CODE}",
@@ -285,8 +284,8 @@ private fun InfoCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = SkyflowShapes.Card,
-        color = SkyflowColors.Surface,
-        border = SkyflowBorders.Default
+        color = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass
     ) {
         Column {
             Row(

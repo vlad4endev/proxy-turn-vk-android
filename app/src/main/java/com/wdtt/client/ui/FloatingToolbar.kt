@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -129,10 +130,11 @@ fun FloatingToolbar(
                     )
                 },
             shape = if (isRightSide)
-                RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp)
+                RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp)
             else
-                RoundedCornerShape(topEnd = 14.dp, bottomEnd = 14.dp),
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp),
+            color = SkyflowColors.GlassSurfaceElevated,
+            border = BorderStroke(1.dp, SkyflowColors.BorderGlow),
             shadowElevation = 0.dp,
             tonalElevation = 0.dp,
         ) {
@@ -144,7 +146,7 @@ fun FloatingToolbar(
                     imageVector = Icons.Filled.Settings,
                     contentDescription = "Настройки",
                     modifier = Modifier.size(22.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    tint = SkyflowColors.AccentLight
                 )
             }
         }
@@ -168,8 +170,9 @@ fun FloatingToolbar(
                 modifier = Modifier.onGloballyPositioned { coordinates ->
                     panelHeightPx = coordinates.size.height.toFloat()
                 },
-                shape = RoundedCornerShape(32.dp),
-                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(28.dp),
+                color = SkyflowColors.GlassSurfaceElevated,
+                border = BorderStroke(1.dp, SkyflowColors.BorderGlow),
                 shadowElevation = 0.dp,
                 tonalElevation = 0.dp,
             ) {

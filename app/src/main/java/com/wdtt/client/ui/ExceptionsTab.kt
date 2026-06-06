@@ -121,7 +121,6 @@ fun ExceptionsTab() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(SkyflowColors.Background)
     ) {
 
         Spacer(Modifier.height(8.dp))
@@ -130,8 +129,8 @@ fun ExceptionsTab() {
         Surface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             shape = SkyflowShapes.Card,
-            color = SkyflowColors.Surface,
-            border = SkyflowBorders.Default
+            color = SkyflowColors.GlassSurface,
+            border = SkyflowBorders.Glass
         ) {
             Column(Modifier.padding(10.dp)) {
 
@@ -243,8 +242,8 @@ fun ExceptionsTab() {
         Surface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             shape = SkyflowShapes.SearchField,
-            color = SkyflowColors.Surface,
-            border = SkyflowBorders.Default
+            color = SkyflowColors.GlassSurface,
+            border = SkyflowBorders.Glass
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -341,8 +340,8 @@ fun AppRow(app: AppItem, isSelected: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = SkyflowShapes.AppCard,
-        color = SkyflowColors.Surface,
-        border = SkyflowBorders.Default
+        color = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass
     ) {
         Row(
             modifier = Modifier

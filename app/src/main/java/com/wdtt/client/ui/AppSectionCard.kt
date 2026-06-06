@@ -13,31 +13,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 
 @Composable
-private fun appSectionCardColor(): Color {
-    val colors = MaterialTheme.colorScheme
-    val isDark = colors.background.luminance() < 0.22f
-    return if (isDark) {
-        lerp(colors.surface, colors.surfaceVariant, 0.10f)
-    } else {
-        lerp(colors.surface, colors.surfaceVariant, 0.28f)
-    }
-}
+private fun appSectionCardColor(): Color = SkyflowColors.GlassSurface
 
 @Composable
-private fun appSectionCardBorderColor(): Color {
-    val colors = MaterialTheme.colorScheme
-    val isDark = colors.background.luminance() < 0.22f
-    return if (isDark) {
-        colors.outlineVariant.copy(alpha = 0.26f)
-    } else {
-        colors.outlineVariant.copy(alpha = 0.24f)
-    }
-}
+private fun appSectionCardBorderColor(): Color = SkyflowColors.Border.copy(alpha = 0.5f)
 
 @Composable
 fun AppSectionCard(

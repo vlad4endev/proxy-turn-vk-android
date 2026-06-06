@@ -52,13 +52,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -383,20 +379,33 @@ fun TunnelTab() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(SkyflowColors.Background)
             .verticalScroll(scrollState)
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .padding(horizontal = 20.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(12.dp))
 
-        PowerButton(
-            tunnelRunning = tunnelRunning || isStarting,
-            isConnecting = isConnecting,
-            enabled = powerEnabled,
-            onClick = onPowerClick
-        )
+        Box(contentAlignment = Alignment.Center) {
+            val glowBrush = when {
+                isConnected -> SkyflowGradients.PowerConnected
+                isConnecting -> SkyflowGradients.PowerConnecting
+                else -> null
+            }
+            if (glowBrush != null) {
+                Box(
+                    Modifier
+                        .size(140.dp)
+                        .background(glowBrush, CircleShape)
+                )
+            }
+            PowerButton(
+                tunnelRunning = tunnelRunning || isStarting,
+                isConnecting = isConnecting,
+                enabled = powerEnabled,
+                onClick = onPowerClick
+            )
+        }
 
         StatusLabel(
             tunnelRunning = tunnelRunning || isStarting,
@@ -416,12 +425,12 @@ fun TunnelTab() {
                     .fillMaxWidth()
                     .bringIntoViewRequester(linkFieldBringIntoView),
                 shape = SkyflowShapes.Field,
-                color = SkyflowColors.Surface,
-                border = SkyflowBorders.Accent
+                color = SkyflowColors.GlassSurface,
+                border = SkyflowBorders.GlassAccent
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(horizontal = 14.dp, vertical = 11.dp)
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -430,8 +439,8 @@ fun TunnelTab() {
                     ) {
                         Text(
                             "КОД ДОСТУПА",
-                            fontSize = 8.sp, color = SkyflowColors.Accent,
-                            letterSpacing = 0.8.sp,
+                            style = SkyflowTypography.labelUppercase,
+                            color = SkyflowColors.AccentLight,
                             modifier = Modifier.padding(bottom = 5.dp)
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -600,19 +609,11 @@ fun TunnelTab() {
                             }
                         },
                         readOnly = tunnelRunning,
-                        visualTransformation = if (vkLink.length > 42) {
-                            VisualTransformation { text ->
-                                TransformedText(
-                                    AnnotatedString(text.text.take(42) + "..."),
-                                    OffsetMapping.Identity
-                                )
-                            }
-                        } else {
-                            VisualTransformation.None
-                        },
+                        maxLines = 1,
                         textStyle = TextStyle(
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Default,
+                            fontSize = 13.sp,
+                            fontFamily = interFontFamily,
+                            fontWeight = FontWeight.Medium,
                             color = SkyflowColors.TextAccent,
                         ),
                         decorationBox = { inner ->
@@ -720,11 +721,11 @@ fun TunnelTab() {
                                             }
                                         },
                                     shape = SkyflowShapes.Chip,
-                                    color = SkyflowColors.Surface,
-                                    border = SkyflowBorders.Accent
+                                    color = SkyflowColors.GlassSurfaceElevated,
+                                    border = SkyflowBorders.GlassAccent
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -737,9 +738,10 @@ fun TunnelTab() {
                                         }
                                         Text(
                                             autoBtnText,
-                                            fontSize = 11.sp,
+                                            fontSize = 12.sp,
                                             color = autoBtnTextColor,
-                                            fontWeight = FontWeight.Medium
+                                            fontWeight = FontWeight.Medium,
+                                            fontFamily = interFontFamily
                                         )
                                     }
                                 }
@@ -870,20 +872,21 @@ fun TunnelTab() {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = SkyflowShapes.Card,
-                    color = SkyflowColors.Surface,
-                    border = SkyflowBorders.Default
+                    color = SkyflowColors.GlassSurface,
+                    border = SkyflowBorders.Glass
                 ) {
                     Column {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "ТРАФИК", fontSize = 8.sp, color = SkyflowColors.TextSecondary,
-                                letterSpacing = 0.6.sp
+                                "ТРАФИК",
+                                style = SkyflowTypography.labelUppercase,
+                                color = SkyflowColors.TextSecondary
                             )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -935,15 +938,15 @@ fun TunnelTab() {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = SkyflowShapes.Card,
-                    color = SkyflowColors.Surface,
-                    border = SkyflowBorders.Default
+                    color = SkyflowColors.GlassSurface,
+                    border = SkyflowBorders.Glass
                 ) {
                     Column {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { servicesExpanded = !servicesExpanded }
-                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -952,8 +955,9 @@ fun TunnelTab() {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    "СЕРВИСЫ", fontSize = 8.sp, color = SkyflowColors.TextSecondary,
-                                    letterSpacing = 0.6.sp
+                                    "СЕРВИСЫ",
+                                    style = SkyflowTypography.labelUppercase,
+                                    color = SkyflowColors.TextSecondary
                                 )
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -1113,24 +1117,52 @@ private fun PowerButton(
         infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Reverse),
         label = "sw"
     )
+    val pulseScale by inf.animateFloat(
+        1f,
+        1.04f,
+        infiniteRepeatable(tween(1400, easing = LinearEasing), RepeatMode.Reverse),
+        label = "pulse"
+    )
 
     val interactionSource = remember { MutableInteractionSource() }
+    val isActive = tunnelRunning && !isConnecting
 
     Box(
         modifier = Modifier
-            .size(96.dp)
+            .size(108.dp)
+            .then(if (isActive) Modifier.graphicsLayer { scaleX = pulseScale; scaleY = pulseScale } else Modifier)
             .alpha(if (enabled) 1f else 0.38f)
             .clip(CircleShape)
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
-                indication = ripple(bounded = true, radius = 48.dp),
+                indication = ripple(bounded = true, radius = 54.dp),
                 onClick = onClick
             )
             .drawBehind {
                 val r = size.minDimension / 2f
-                val ringStroke = 1.5.dp.toPx()
+                val ringStroke = 2.dp.toPx()
                 val ringRadius = r - ringStroke / 2f
+
+                if (isActive) {
+                    drawCircle(
+                        ringColor.copy(alpha = 0.12f),
+                        radius = ringRadius + 6.dp.toPx()
+                    )
+                }
+
+                drawCircle(
+                    brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                        colors = listOf(
+                            SkyflowColors.GlassSurfaceElevated,
+                            SkyflowColors.Surface
+                        ),
+                        center = center,
+                        radius = r
+                    ),
+                    radius = r - ringStroke
+                )
+
                 drawCircle(ringColor, radius = ringRadius, style = Stroke(ringStroke))
                 if (tunnelRunning && isConnecting) {
                     rotate(spinAngle) {
@@ -1145,11 +1177,11 @@ private fun PowerButton(
                         )
                     }
                 }
-                val iconSize = 36.dp.toPx()
+                val iconSize = 38.dp.toPx()
                 val iconLeft = (size.width - iconSize) / 2f
                 val iconTop = (size.height - iconSize) / 2f
                 val cx = size.width / 2f
-                val sw = 1.8.dp.toPx()
+                val sw = 2.dp.toPx()
                 drawLine(
                     ringColor,
                     Offset(cx, iconTop),
@@ -1196,26 +1228,28 @@ private fun StatusLabel(
     }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
             text,
+            style = SkyflowTypography.statusTitle,
             color = color,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Medium
+            fontFamily = interFontFamily
         )
         if (isConnected) {
             Text(
                 "Соединение защищено",
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                fontSize = 12.sp
+                color = SkyflowColors.TextSecondary,
+                fontSize = 13.sp,
+                fontFamily = interFontFamily
             )
         }
         if (isConnecting && hint.isNotBlank()) {
             Text(
                 hint,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
+                color = SkyflowColors.TextMuted,
+                fontSize = 12.sp,
+                fontFamily = interFontFamily,
                 textAlign = TextAlign.Center
             )
         }
@@ -1245,9 +1279,8 @@ private fun ServerStatusRow(
     ) {
         Text(
             "ОБЛАЧНЫЙ РЕЛЕЙ",
-            fontSize = 8.sp,
-            color = SkyflowColors.TextMuted,
-            letterSpacing = 1.sp
+            style = SkyflowTypography.labelUppercase,
+            color = SkyflowColors.TextMuted
         )
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1353,10 +1386,10 @@ private fun TrafficBox(
     Surface(
         modifier = modifier,
         shape = SkyflowShapes.Card,
-        color = SkyflowColors.Surface,
-        border = SkyflowBorders.Default
+        color = SkyflowColors.GlassSurfaceElevated.copy(alpha = 0.6f),
+        border = SkyflowBorders.Glass
     ) {
-        Column(Modifier.padding(6.dp, 6.dp, 6.dp, 4.dp)) {
+        Column(Modifier.padding(8.dp, 8.dp, 8.dp, 6.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -1373,8 +1406,10 @@ private fun TrafficBox(
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    "%.0f".format(valueMb), fontSize = 20.sp,
-                    fontWeight = FontWeight.Medium, color = SkyflowColors.TextPrimary
+                    "%.0f".format(valueMb), fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = SkyflowColors.TextPrimary,
+                    fontFamily = interFontFamily
                 )
                 Text("МБ", fontSize = 10.sp, color = SkyflowColors.TextSecondary)
             }
