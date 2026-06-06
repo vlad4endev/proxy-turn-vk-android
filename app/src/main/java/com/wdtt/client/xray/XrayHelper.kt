@@ -117,7 +117,11 @@ class XrayHelper(context: Context) {
 
         if (!xrayBin.exists()) {
             Log.w(TAG, "Xray binary not found at ${xrayBin.absolutePath} — skipping start")
-            return@withContext
+            throw IllegalStateException(
+                "libxray.so not found at ${xrayBin.absolutePath}. " +
+                "This architecture may not be supported. " +
+                "Run: scripts/build-native-speed.sh"
+            )
         }
 
         try {
@@ -147,6 +151,7 @@ class XrayHelper(context: Context) {
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Xray: ${e.message}", e)
+            process = null
             throw e
         }
     }

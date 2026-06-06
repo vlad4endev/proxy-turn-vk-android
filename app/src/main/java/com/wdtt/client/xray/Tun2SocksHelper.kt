@@ -22,16 +22,13 @@ class Tun2SocksHelper(private val vpnService: VpnService) {
 
     @Volatile private var tunFd: ParcelFileDescriptor? = null
     @Volatile private var running = false
+    @Volatile private var nativeLibLoaded = false
 
     companion object {
         private const val TAG = "Tun2Socks"
         private const val TUN_ADDRESS = "10.1.0.2"
         private const val TUN_PREFIX = 30
         private const val TUN_MTU = 1500
-
-        init {
-            System.loadLibrary("hev-socks5-tunnel")
-        }
 
         @JvmStatic
         private external fun TProxyStartService(configPath: String, fd: Int)
@@ -40,12 +37,33 @@ class Tun2SocksHelper(private val vpnService: VpnService) {
         private external fun TProxyStopService()
     }
 
+    init {
+        tryLoadNativeLibrary()
+    }
+
+    private fun tryLoadNativeLibrary() {
+        try {
+            System.loadLibrary("hev-socks5-tunnel")
+            nativeLibLoaded = true
+            Log.d(TAG, "libhev-socks5-tunnel loaded successfully")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Failed to load libhev-socks5-tunnel: ${e.message}")
+            nativeLibLoaded = false
+        }
+    }
+
     /**
      * Создаёт TUN через VpnService.Builder и запускает hev-socks5-tunnel.
      * Должен вызываться из IO-корутины.
      */
     suspend fun start(socksHost: String, socksPort: Int) = withContext(Dispatchers.IO) {
         stop()
+
+        if (!nativeLibLoaded) {
+            throw IllegalStateException(
+                "libhev-socks5-tunnel.so не загружена — пересоберите APK (scripts/build-native-speed.sh)"
+            )
+        }
 
         if (VpnService.prepare(vpnService) != null) {
             throw IllegalStateException("VPN-разрешение не выдано")

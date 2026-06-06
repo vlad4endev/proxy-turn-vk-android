@@ -329,15 +329,20 @@ object TunnelManager {
             helper.start(configJson)
             if (!helper.isRunning()) {
                 throw IllegalStateException(
-                    "libxray.so не найден — пересоберите APK (scripts/build-native-speed.sh)"
+                    "Xray binary не найден или не запустился. Пересоберите APK:\nscripts/build-native-speed.sh"
                 )
             }
-            updateLog("xray_started", "[XRAY] SOCKS5 прокси запущен (:${helper.socksPort()})", 1, false)
+            updateLog("xray_started", "[XRAY] SOCKS5 прокси запущен (:${helper.socksPort()}) — $endpoint", 1, false)
         } catch (e: Exception) {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
-            connectionHint.value = "Не удалось запустить Xray ($endpoint)"
-            updateLog("vpn_start_error", "Ошибка запуска Xray: ${e.readableMessage()}", 99, true)
+            val hint = when {
+                e.message?.contains("not found", ignoreCase = true) == true -> "libxray.so не собран для вашей архитектуры"
+                e.message?.contains("binary", ignoreCase = true) == true -> "Пересоберите APK скриптом build-native-speed.sh"
+                else -> "Проверьте логи и документацию"
+            }
+            connectionHint.value = "Ошибка Xray: $hint"
+            updateLog("xray_error", "Ошибка запуска Xray: ${e.readableMessage()}", 99, true)
             return
         }
 
@@ -356,8 +361,18 @@ object TunnelManager {
 
         try {
             tun2socksHelper = Tun2SocksHelper(service)
-            tun2socksHelper!!.start("127.0.0.1", xrayHelper?.socksPort() ?: 10808)
-            updateLog("tun_started", "[TUN] Интерфейс создан, tun2socks запущен", 1, false)
+        } catch (e: Exception) {
+            running.value = false
+            connectionStage.value = ConnectionStage.FAILED
+            connectionHint.value = "Ошибка инициализации tun2socks"
+            updateLog("tun_init_error", "Ошибка инициализации Tun2SocksHelper: ${e.readableMessage()}", 99, true)
+            return
+        }
+
+        try {
+            val socksPort = xrayHelper?.socksPort() ?: 10808
+            tun2socksHelper!!.start("127.0.0.1", socksPort)
+            updateLog("tun_started", "[TUN] Интерфейс создан, tun2socks запущен (SOCKS5 :$socksPort)", 1, false)
         } catch (e: Exception) {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
