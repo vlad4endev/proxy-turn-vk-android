@@ -816,7 +816,7 @@ fun DeploySecretsDialog(
                     OutlinedTextField(
                         value = wgPortInput,
                         onValueChange = { wgPortInput = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Порт WireGuard сервера") },
+                        label = { Text("Порт защищённого канала") },
                         placeholder = { Text("56001") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),

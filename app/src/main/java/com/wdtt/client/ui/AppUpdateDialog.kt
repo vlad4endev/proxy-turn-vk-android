@@ -21,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,12 +37,13 @@ fun AppUpdateDialog(
     onPostpone: () -> Unit,
     onUpdate: () -> Unit
 ) {
+    val context = LocalContext.current
     val isTagOnly = release.source == RemoteVersionSource.Tag
     val title = if (isTagOnly) "Найден новый tag" else "Доступно обновление"
     val description = if (isTagOnly) {
         "На GitHub обнаружен более новый tag ${release.versionTag}. Похоже, опубликованный release ещё не догнал его."
     } else {
-        "Вышла новая версия приложения ${release.versionTag}. Можно открыть страницу релиза и обновиться вручную."
+        "Вышла новая версия приложения ${release.versionTag}. Нажмите «Обновить» для автоматической загрузки APK."
     }
 
     Dialog(
@@ -113,7 +115,26 @@ fun AppUpdateDialog(
                     }
 
                     Button(
-                        onClick = onUpdate,
+                        onClick = {
+                            val apkUrl = "https://github.com/vlad4endev/proxy-turn-vk-android/releases/latest/download/app-release.apk"
+                            val request = android.app.DownloadManager.Request(
+                                android.net.Uri.parse(apkUrl)
+                            ).apply {
+                                setTitle("SKYFLOW M — обновление")
+                                setDescription("Загрузка новой версии...")
+                                setNotificationVisibility(
+                                    android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                                )
+                                setDestinationInExternalPublicDir(
+                                    android.os.Environment.DIRECTORY_DOWNLOADS,
+                                    "skyflow-m-update.apk"
+                                )
+                                setMimeType("application/vnd.android.package-archive")
+                            }
+                            val dm = context.getSystemService(android.app.DownloadManager::class.java)
+                            dm.enqueue(request)
+                            onUpdate()
+                        },
                         modifier = Modifier
                             .weight(1f)
                             .height(50.dp),

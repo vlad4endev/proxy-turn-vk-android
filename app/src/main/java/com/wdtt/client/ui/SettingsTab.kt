@@ -1219,7 +1219,7 @@ fun SecretsDialog(
                     OutlinedTextField(
                         value = serverWgPort,
                         onValueChange = { serverWgPort = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Порт сервера WireGuard") },
+                        label = { Text("Порт сервера") },
                         placeholder = { Text("56001") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),

@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -23,6 +24,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -47,10 +50,10 @@ import java.util.Locale
 
 private enum class PathNode(val label: String, val short: String) {
     PHONE("Телефон", "APP"),
-    VK("VK API", "VK"),
-    TURN("TURN relay", "TURN"),
-    VPS("VPS DTLS", "VPS"),
-    VPN("WireGuard", "VPN")
+    VK("Авторизация", "VK"),
+    TURN("Облачный релей", "РЕЛЕЙ"),
+    VPS("Сервер", "VPS"),
+    VPN("Защита", "VPN")
 }
 
 private enum class NodeState { IDLE, ACTIVE, DONE, ERROR }
@@ -62,6 +65,7 @@ private enum class LogFilter(val label: String, val categories: Set<LogCategory>
     PATH("Путь", setOf(LogCategory.VK, LogCategory.CAPTCHA, LogCategory.TURN, LogCategory.WRAP, LogCategory.SERVER, LogCategory.VPN)),
     SERVER("VPS", setOf(LogCategory.SERVER, LogCategory.WRAP)),
     VK("VK", setOf(LogCategory.VK, LogCategory.CAPTCHA)),
+    RELAY("Релей", setOf(LogCategory.TURN)),
     ERRORS("Ошибки", null)
 }
 
@@ -83,10 +87,11 @@ fun LogsTab() {
     var logFilter by remember { mutableStateOf(LogFilter.ALL) }
 
     val filteredLogs = remember(currentLogs, logFilter) {
+        val preFiltered = currentLogs.filter { !shouldSuppressLog(it) }
         when (logFilter) {
-            LogFilter.ALL -> currentLogs
-            LogFilter.ERRORS -> currentLogs.filter { it.isError }
-            else -> currentLogs.filter { logFilter.categories!!.contains(it.category) }
+            LogFilter.ALL -> preFiltered
+            LogFilter.ERRORS -> preFiltered.filter { it.isError }
+            else -> preFiltered.filter { logFilter.categories!!.contains(it.category) }
         }
     }
 
@@ -136,40 +141,11 @@ fun LogsTab() {
             workers = activeWorkers
         )
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
 
         LogFilterRow(selected = logFilter, onSelect = { logFilter = it })
 
         Spacer(Modifier.height(8.dp))
-
-        AppSectionCard(
-            modifier = Modifier.padding(bottom = 8.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    "Запись событий",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Switch(
-                    checked = loggingEnabled,
-                    onCheckedChange = { enabled ->
-                        scope.launch {
-                            settingsStore.saveLoggingEnabled(enabled)
-                            if (!enabled) TunnelManager.clearLogs()
-                        }
-                    }
-                )
-            }
-        }
 
         val isDark = isSystemInDarkTheme()
         val terminalBg = if (isDark) WDTTColors.terminalBgDark else WDTTColors.terminalBg
@@ -187,7 +163,7 @@ fun LogsTab() {
                 ) {
                     Text(
                         text = if (loggingEnabled) {
-                            "Событий пока нет.\nПодключите туннель — здесь появится полный путь: VK → TURN → VPS → VPN."
+                            "Событий пока нет.\nУстановите соединение — здесь появится полный путь: Авторизация → Облачный релей → Сервер → Защита."
                         } else {
                             "Логирование выключено."
                         },
@@ -200,7 +176,8 @@ fun LogsTab() {
             } else {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                     contentPadding = PaddingValues(bottom = 12.dp)
                 ) {
                     items(filteredLogs, key = { it.key }) { entry ->
@@ -222,147 +199,90 @@ private fun ConnectionPathCard(
     stats: String,
     workers: Int
 ) {
-    AppSectionCard(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "Путь подключения",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+    val stageLabel = stageLabel(stage, running)
+    val captchaMode = snapshot.captchaMode.ifBlank { "auto" }
+    val captchaText = when {
+        captchaMode.contains("auto", ignoreCase = true) -> "auto"
+        captchaMode.contains("manual", ignoreCase = true) -> "ручная"
+        else -> "—"
+    }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            nodes.forEachIndexed { index, nodeUi ->
-                PathNodeChip(nodeUi)
-                if (index < nodes.lastIndex) {
-                    PathArrow(nodeUi.state, nodes.getOrNull(index + 1)?.state ?: NodeState.IDLE)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xFF13112A),
+        border = BorderStroke(0.5.dp, Color(0xFF1E1C3A))
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                nodes.forEachIndexed { i, nodeUi ->
+                    val dotColor = when (nodeUi.state) {
+                        NodeState.DONE -> Color(0xFF4ADE80)
+                        NodeState.ACTIVE -> Color(0xFF818CF8)
+                        NodeState.ERROR -> Color(0xFFF87171)
+                        NodeState.IDLE -> Color(0xFF2D2B52)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(dotColor)
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(nodeUi.node.short, fontSize = 6.sp, color = Color(0xFF6B7280))
+                    }
+                    if (i < nodes.size - 1) {
+                        Text(
+                            "→",
+                            fontSize = 8.sp,
+                            color = Color(0xFF2D2B52),
+                            modifier = Modifier
+                                .padding(horizontal = 4.dp)
+                                .padding(bottom = 8.dp)
+                        )
+                    }
                 }
             }
-        }
 
-        val peer = snapshot.peer.ifBlank { ServerConfig.defaultPeer() }
-        val stageLabel = stageLabel(stage, running)
-        val stageColor = stageColor(stage, running)
+            Spacer(Modifier.height(6.dp))
+            HorizontalDivider(color = Color(0xFF1E1C3A), thickness = 0.5.dp)
+            Spacer(Modifier.height(6.dp))
 
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusDetailRow("Этап", stageLabel, stageColor)
-            StatusDetailRow("VPS", peer, MaterialTheme.colorScheme.onSurface)
-            if (snapshot.listen.isNotBlank()) {
-                StatusDetailRow("Локально", snapshot.listen, MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (snapshot.hashMode.isNotBlank()) {
-                StatusDetailRow(
-                    "VK хеш",
-                    "${snapshot.hashMode} · ${snapshot.hashCount} шт.",
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (snapshot.workers > 0) {
-                StatusDetailRow(
-                    "Потоки",
-                    "${snapshot.workers} · капча ${snapshot.captchaMode}/${snapshot.captchaSolve}",
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            StatusDetailRow(
-                "Воркеры",
-                if (workers > 0) "$workers активных" else if (running) "ожидание…" else "—",
-                if (workers > 0) WDTTColors.terminalGreen else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (stats != "Ожидание данных..." && stats.isNotBlank()) {
-                StatusDetailRow("Трафик", stats, WDTTColors.terminalBlue)
-            }
-            if (hint.isNotBlank()) {
-                Text(
-                    text = hint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    lineHeight = 16.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PathNodeChip(nodeUi: PathNodeUi) {
-    val (bg, fg, border) = nodeColors(nodeUi.state)
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(
-            color = bg,
-            shape = RoundedCornerShape(12.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, border)
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(fg)
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    nodeUi.node.short,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = fg
-                )
+                LogMetaItem("Этап", stageLabel, stageColor(stage, running))
+                LogMetaItem("Потоки", snapshot.workers.toString(), Color(0xFFA5B4FC))
+                LogMetaItem("Воркеры", workers.toString(), Color(0xFFA5B4FC))
+                LogMetaItem("Капча", captchaText, Color(0xFF6B7280))
+            }
+
+            if (hint.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(hint, fontSize = 8.sp, color = Color(0xFFF87171), lineHeight = 12.sp)
             }
         }
-        Text(
-            nodeUi.node.label,
-            fontSize = 9.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 
 @Composable
-private fun PathArrow(from: NodeState, to: NodeState) {
-    val active = from == NodeState.DONE || from == NodeState.ACTIVE || to == NodeState.ACTIVE
-    Text(
-        "→",
-        fontSize = 14.sp,
-        fontWeight = FontWeight.Bold,
-        color = if (active) WDTTColors.terminalGreen else MaterialTheme.colorScheme.outline,
-        modifier = Modifier.padding(horizontal = 2.dp)
-    )
-}
-
-@Composable
-private fun StatusDetailRow(label: String, value: String, valueColor: Color) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top
-    ) {
+private fun LogMetaItem(key: String, value: String, valueColor: Color) {
+    Column {
         Text(
-            label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.widthIn(max = 100.dp)
+            key.uppercase(),
+            fontSize = 6.sp,
+            color = Color(0xFF6B7280),
+            letterSpacing = 0.6.sp
         )
-        Text(
-            value,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium,
-            color = valueColor,
-            modifier = Modifier.weight(1f),
-            textAlign = androidx.compose.ui.text.style.TextAlign.End,
-            lineHeight = 16.sp
-        )
+        Text(value, fontSize = 7.sp, color = valueColor)
     }
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -371,34 +291,71 @@ private fun LogFilterRow(selected: LogFilter, onSelect: (LogFilter) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         LogFilter.entries.forEach { filter ->
-            FilterChip(
-                selected = selected == filter,
+            val isSelected = selected == filter
+            Surface(
                 onClick = { onSelect(filter) },
-                label = { Text(filter.label, fontSize = 12.sp) }
-            )
+                shape = RoundedCornerShape(10.dp),
+                color = if (isSelected) Color(0xFF6366F1) else Color(0xFF13112A),
+                border = if (isSelected) null else BorderStroke(0.5.dp, Color(0xFF2A2850)),
+                modifier = Modifier.height(24.dp)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.padding(horizontal = 10.dp)
+                ) {
+                    Text(
+                        filter.label,
+                        fontSize = 8.sp,
+                        color = if (isSelected) Color.White else Color(0xFF6B7280)
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
 fun LogLine(entry: LogEntry) {
-    val color = when {
-        entry.isError -> WDTTColors.terminalRed
-        entry.priority <= 2 -> WDTTColors.terminalGreen
-        entry.priority == 3 -> WDTTColors.terminalBlue
-        else -> WDTTColors.terminalText
+    val isError = entry.isError
+    val isWarn = !isError &&
+        (entry.category == LogCategory.ERROR || entry.message.contains("warn", ignoreCase = true))
+    val isOk = !isError && !isWarn && entry.priority <= 2
+    val isVk = !isError && !isWarn && !isOk && entry.category == LogCategory.VK
+
+    val bgColor = when {
+        isError -> Color(0xFF1A0F0F)
+        isWarn -> Color(0xFF1A150A)
+        isOk -> Color(0xFF0A1A0F)
+        isVk -> Color(0xFF0F0F20)
+        else -> Color(0xFF0F0D1F)
     }
+    val accentColor = when {
+        isError -> Color(0xFFF87171)
+        isWarn -> Color(0xFFF59E0B)
+        isOk -> Color(0xFF4ADE80)
+        isVk -> Color(0xFFA5B4FC)
+        else -> Color(0xFF6366F1)
+    }
+    val textColor = when {
+        isError -> Color(0xFFFCA5A5)
+        isWarn -> Color(0xFFFCD34D)
+        isOk -> Color(0xFF86EFAC)
+        isVk -> Color(0xFFD4D4D8)
+        else -> Color(0xFFD4D4D8)
+    }
+
     val tagColor = categoryColor(entry.category)
+    val tag = categoryShort(entry.category)
     val timeStr = remember(entry.timestampMs) {
         SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(entry.timestampMs))
     }
+    val displayMessage = transformLogMessage(entry.message)
 
     var trigger by remember { mutableIntStateOf(0) }
     LaunchedEffect(entry.count) { trigger++ }
-
     val animatedScale by animateFloatAsState(
         targetValue = if (trigger > 0) 1.12f else 1.0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
@@ -406,62 +363,77 @@ fun LogLine(entry: LogEntry) {
         finishedListener = { trigger = 0 }
     )
 
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        verticalAlignment = Alignment.Top
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = bgColor
     ) {
-        Text(
-            text = timeStr,
-            color = WDTTColors.terminalText.copy(alpha = 0.45f),
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(52.dp)
-        )
-
-        Surface(
-            color = tagColor.copy(alpha = 0.18f),
-            shape = RoundedCornerShape(6.dp),
-            modifier = Modifier.padding(end = 6.dp)
-        ) {
-            Text(
-                text = categoryShort(entry.category),
-                color = tagColor,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                maxLines = 1
-            )
-        }
-
-        Surface(
-            color = WDTTColors.terminalCounter.copy(alpha = 0.2f),
-            shape = RoundedCornerShape(12.dp),
+        Row(
             modifier = Modifier
-                .defaultMinSize(minWidth = 22.dp, minHeight = 22.dp)
-                .graphicsLayer(scaleX = animatedScale, scaleY = animatedScale)
+                .drawBehind {
+                    drawRect(accentColor, size = Size(2.dp.toPx(), size.height))
+                }
+                .padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.Top
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 5.dp)) {
+            Column(modifier = Modifier.width(32.dp)) {
                 Text(
-                    text = "${entry.count}",
-                    color = WDTTColors.terminalBlue,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    timeStr,
+                    fontSize = 6.sp,
+                    color = Color(0xFF6B7280),
+                    fontFamily = FontFamily.Monospace
                 )
+                Spacer(Modifier.height(2.dp))
+                Surface(
+                    shape = RoundedCornerShape(3.dp),
+                    color = tagColor.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        tag,
+                        fontSize = 6.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = tagColor,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    text = displayMessage,
+                    fontSize = 8.sp,
+                    lineHeight = 12.sp,
+                    color = textColor,
+                    modifier = Modifier.weight(1f)
+                )
+                if (entry.count > 1) {
+                    Surface(
+                        color = Color(0xFF1E1C3A),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .defaultMinSize(minWidth = 18.dp, minHeight = 14.dp)
+                            .graphicsLayer(scaleX = animatedScale, scaleY = animatedScale)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "×${entry.count}",
+                                color = Color(0xFFA5B4FC),
+                                fontSize = 7.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
             }
         }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Text(
-            text = stripCategoryPrefix(entry.message),
-            color = color,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = if (entry.isError) FontWeight.Bold else FontWeight.Normal,
-            lineHeight = 17.sp,
-            modifier = Modifier.weight(1f)
-        )
     }
 }
 
@@ -521,10 +493,10 @@ private fun buildPathNodes(
 private fun stageLabel(stage: ConnectionStage, running: Boolean): String = when {
     !running && stage == ConnectionStage.IDLE -> "Не подключено"
     stage == ConnectionStage.STARTING -> "Запуск процесса…"
-    stage == ConnectionStage.VK_CREDS -> "VK: учётные данные"
-    stage == ConnectionStage.VK_CAPTCHA -> "VK: капча"
-    stage == ConnectionStage.SERVER_DTLS -> "VPS: DTLS / WRAP"
-    stage == ConnectionStage.VPN_READY -> "VPN активен"
+    stage == ConnectionStage.VK_CREDS -> "Авторизация…"
+    stage == ConnectionStage.VK_CAPTCHA -> "Проверка…"
+    stage == ConnectionStage.SERVER_DTLS -> "Сервер: настройка…"
+    stage == ConnectionStage.VPN_READY -> "Защита активна"
     stage == ConnectionStage.FAILED -> "Ошибка подключения"
     running -> "Подключение…"
     else -> "—"
@@ -564,7 +536,7 @@ private fun nodeColors(state: NodeState): Triple<Color, Color, Color> {
 private fun categoryShort(category: LogCategory): String = when (category) {
     LogCategory.VK -> "VK"
     LogCategory.CAPTCHA -> "CAP"
-    LogCategory.TURN -> "TURN"
+    LogCategory.TURN -> "РЕЛЕЙ"
     LogCategory.WRAP -> "WRAP"
     LogCategory.SERVER -> "VPS"
     LogCategory.VPN -> "VPN"
@@ -596,6 +568,34 @@ private fun stripCategoryPrefix(message: String): String {
     } else message
 }
 
+private fun shouldSuppressLog(entry: LogEntry): Boolean {
+    val msg = entry.message
+    return msg.contains("failed to persist client ID", ignoreCase = true) ||
+        msg.contains("warning:", ignoreCase = true)
+}
+
+private fun transformLogMessage(message: String): String {
+    val stripped = stripCategoryPrefix(message)
+
+    val dtlsMatch = Regex("""\[STREAM (\d+)].*Established DTLS connection""", RegexOption.IGNORE_CASE).find(stripped)
+    if (dtlsMatch != null) return "Канал ${dtlsMatch.groupValues[1]} установлен ✓"
+
+    if (Regex("""TURN urls \(\d+ total\)""", RegexOption.IGNORE_CASE).containsMatchIn(stripped)) {
+        return "Облачный релей подключён ✓"
+    }
+
+    if (stripped.contains("Success with client_id", ignoreCase = true)) return "Авторизация успешна ✓"
+
+    if (stripped.contains("Handshake done", ignoreCase = true)) return "Рукопожатие выполнено ✓"
+
+    return stripped
+        .replace("[TURN]", "[РЕЛЕЙ]")
+        .replace("TURN urls", "облачный релей", ignoreCase = true)
+        .replace("VK TURN", "облачный релей", ignoreCase = true)
+        .replace("DTLS connection", "защищённый канал", ignoreCase = true)
+        .replace("DTLS", "шифрование")
+}
+
 private fun formatLogsForCopy(
     logs: List<LogEntry>,
     snapshot: TunnelConnectionSnapshot,
@@ -606,18 +606,18 @@ private fun formatLogsForCopy(
 ): String = buildString {
     appendLine("=== SKYFLOW M — отчёт диагностики ===")
     appendLine("Этап: ${stageLabel(stage, logs.isNotEmpty())}")
-    appendLine("VPS: ${snapshot.peer.ifBlank { ServerConfig.defaultPeer() }}")
+    appendLine("Сервер: ${snapshot.peer.ifBlank { ServerConfig.defaultPeer() }}")
     appendLine("Локально: ${snapshot.listen}")
-    appendLine("VK: ${snapshot.hashMode} x${snapshot.hashCount}, потоки=${snapshot.workers}")
+    appendLine("Авторизация: ${snapshot.hashMode} x${snapshot.hashCount}, потоки=${snapshot.workers}")
     appendLine("Воркеры: $workers | $stats")
     if (hint.isNotBlank()) appendLine("Подсказка: $hint")
-    appendLine("Путь: APP → VK → TURN → VPS → WireGuard")
+    appendLine("Путь: APP → Авторизация → Облачный релей → Сервер → Защита")
     appendLine("--- события ---")
     val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    logs.forEach { e ->
+    logs.filter { !shouldSuppressLog(it) }.forEach { e ->
         val t = fmt.format(Date(e.timestampMs))
         val tag = categoryShort(e.category)
-        val msg = stripCategoryPrefix(e.message)
+        val msg = transformLogMessage(e.message)
         appendLine("[$t][$tag] $msg${if (e.count > 1) " (x${e.count})" else ""}")
     }
 }

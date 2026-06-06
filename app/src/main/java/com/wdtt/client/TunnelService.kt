@@ -58,7 +58,7 @@ class TunnelService : Service() {
 
         when (intent.action) {
             "START" -> {
-                val notification = createNotification("Запуск...")
+                val notification = createNotification("Установка соединения...")
                 startPersistentForeground(notification)
 
                 val params = TunnelParams(
@@ -71,7 +71,8 @@ class TunnelService : Service() {
                     connectionPassword = intent.getStringExtra("connection_password") ?: "",
                     protocol = intent.getStringExtra("protocol") ?: "udp",
                     captchaMode = sanitizeCaptchaMode(intent.getStringExtra("captcha_mode")),
-                    captchaSolveMethod = intent.getStringExtra("captcha_solve_method") ?: "auto"
+                    captchaSolveMethod = intent.getStringExtra("captcha_solve_method") ?: "auto",
+                    provider = intent.getStringExtra("provider") ?: "vk"
                 )
                 startTunnel(params)
             }
@@ -90,7 +91,7 @@ class TunnelService : Service() {
                 if (!TunnelManager.running.value) {
                     stopTunnel()
                 } else {
-                    updateNotification("Туннель активен")
+                    updateNotification("SKYFLOW M активен")
                 }
             }
         }
@@ -109,6 +110,15 @@ class TunnelService : Service() {
                 val manualPortsEnabled = store.manualPortsEnabled.first()
                 val serverDtlsPort = if (manualPortsEnabled) store.serverDtlsPort.first() else 56000
                 val peerWithPort = if (basePeer.isBlank() || basePeer.contains(":")) basePeer else "$basePeer:$serverDtlsPort"
+                val wdttLink = store.wdttLink.first()
+                val provider = if (
+                    wdttLink.contains("telemost", ignoreCase = true) ||
+                    wdttLink.contains("ya.ru", ignoreCase = true)
+                ) {
+                    "yandex"
+                } else {
+                    "vk"
+                }
                 val params = TunnelParams(
                     peer = peerWithPort,
                     vkHashes = store.vkHashes.first(),
@@ -118,7 +128,8 @@ class TunnelService : Service() {
                     sni = store.sni.first(),
                     connectionPassword = store.connectionPassword.first(),
                     captchaMode = sanitizeCaptchaMode(store.captchaMode.first()),
-                    captchaSolveMethod = store.captchaSolveMethod.first()
+                    captchaSolveMethod = store.captchaSolveMethod.first(),
+                    provider = provider
                 )
                 if (params.peer.isNotEmpty() && params.vkHashes.isNotEmpty()) {
                     launch(Dispatchers.Main) {
@@ -138,7 +149,7 @@ class TunnelService : Service() {
     }
 
     private fun startTunnel(params: TunnelParams) {
-        updateNotification("Подключение...")
+        updateNotification("Установка соединения...")
         acquireWakeLock()
         acquireWifiLock()
 
@@ -177,7 +188,7 @@ class TunnelService : Service() {
                         isTunnelPaused = false
                         Log.d("TunnelService", "Сеть появилась, возобновляем туннель")
                         TunnelManager.resume()
-                        updateNotification("Подключение...")
+                        updateNotification("Установка соединения...")
                     } else {
                         handleNetworkChange()
                     }
@@ -308,8 +319,8 @@ class TunnelService : Service() {
     private fun buildTunnelNotificationText(): String {
         val statsText = TunnelManager.stats.value.trim()
         return when {
-            statsText.isEmpty() -> "Туннель активен"
-            statsText == "Ожидание данных..." -> "Туннель активен"
+            statsText.isEmpty() -> "SKYFLOW M активен"
+            statsText == "Ожидание данных..." -> "SKYFLOW M активен"
             else -> statsText
         }
     }

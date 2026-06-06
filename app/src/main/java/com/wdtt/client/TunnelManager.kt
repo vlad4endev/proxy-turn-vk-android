@@ -103,6 +103,7 @@ object TunnelManager {
     val connectionStage = MutableStateFlow(ConnectionStage.IDLE)
     val connectionHint = MutableStateFlow("")
     val connectionSnapshot = MutableStateFlow(TunnelConnectionSnapshot())
+    val connectedSince = MutableStateFlow(0L)
 
     val cooldownActive = MutableStateFlow(false)
     private var cooldownJob: Job? = null
@@ -192,6 +193,7 @@ object TunnelManager {
             processStartedAtMs = 0L
             wireGuardExpectedAtMs = 0L
             wireGuardStarted = false
+            connectedSince.value = 0L
             lastActiveAtMs = 0L
             activeHashIndex = 0
             currentParams = params
@@ -206,11 +208,20 @@ object TunnelManager {
         scope.launch {
             try {
                 val vkLink = if (activeHashIndex == 0) params.vkHashes else params.secondaryVkHash
+                val linkProvider = VkHashParser.detectProvider(vkLink)
 
-                if (vkLink.isBlank() || !vkLink.contains("vk.com/call/join/")) {
-                    updateLog("hash_error", "Ошибка: неверная ссылка VK", 99, true)
+                val isValidLink = when (linkProvider) {
+                    LinkProvider.VK -> vkLink.contains("call/join/", ignoreCase = true) ||
+                        vkLink.matches(Regex("[A-Za-z0-9_\\-]{10,}"))
+                    LinkProvider.YANDEX -> vkLink.contains("/j/", ignoreCase = true) ||
+                        vkLink.contains("telemost", ignoreCase = true)
+                    LinkProvider.UNKNOWN -> vkLink.matches(Regex("[A-Za-z0-9_\\-]{10,}"))
+                }
+
+                if (vkLink.isBlank() || !isValidLink) {
+                    updateLog("hash_error", "Ошибка: неверная ссылка на звонок", 99, true)
                     connectionStage.value = ConnectionStage.FAILED
-                    connectionHint.value = "Укажите ссылку vk.com/call/join/..."
+                    connectionHint.value = "Укажите ссылку vk.com/call/join/... или telemost.yandex.ru/j/..."
                     running.value = false
                     return@launch
                 }
@@ -229,8 +240,8 @@ object TunnelManager {
                     captchaSolve = params.captchaSolveMethod
                 )
                 updateLog("config_info", "[$hashMode] Хешей=$hashCount, Потоков=$totalWorkers", 1)
-                updateLog("path_start", "[ПУТЬ] Телефон → VK → TURN → VPS ${params.peer} → WireGuard", 0)
-                updateLog("server_peer", "[СЕРВЕР] VPS ${params.peer} (DTLS/WRAP после VK-кредов)", 1)
+                updateLog("path_start", "[ПУТЬ] Телефон → VK → TURN → VPS ${params.peer} → Защита", 0)
+                updateLog("server_peer", "[СЕРВЕР] VPS ${params.peer} (шифрование/WRAP после VK-кредов)", 1)
                 connectionStage.value = ConnectionStage.VK_CREDS
                 connectionHint.value = "Шаг 1/2: авторизация VK…"
 
@@ -242,6 +253,13 @@ object TunnelManager {
                     return@launch
                 }
 
+                val providerFlag = params.provider.ifBlank {
+                    when (linkProvider) {
+                        LinkProvider.YANDEX -> "yandex"
+                        else -> "vk"
+                    }
+                }
+
                 val cmd = mutableListOf(
                     binaryPath,
                     "-peer", params.peer,
@@ -249,7 +267,7 @@ object TunnelManager {
                     "-listen", "127.0.0.1:${params.port}",
                     "-obf-profile", "rtpopus",
                     "-obf-key", ServerConfig.OBF_KEY,
-                    "-provider", "vk",
+                    "-provider", providerFlag,
                     "-n", totalWorkers.toString()
                 )
                 cmd.add("-captcha-solve")
@@ -428,6 +446,7 @@ object TunnelManager {
                             if (active > 0) {
                                 lastActiveAtMs = now
                                 wrapAuthTimeoutCount = 0
+                                markConnectedIfNeeded()
                             }
                         }
 
@@ -555,10 +574,10 @@ object TunnelManager {
                         }
                         lineTrim.contains("Relay:") ||
                             (lineTrim.contains("[ВОРКЕР") && lineTrim.contains("[DTLS]") && lineTrim.contains("Handshake")) ->
-                            updateLog("dtls_start", "[СЕРВЕР] DTLS handshake с VPS…", 1, false)
+                            updateLog("dtls_start", "[СЕРВЕР] Рукопожатие шифрования с VPS…", 1, false)
                         lineTrim.contains("DTLS ОК") ||
                             (lineTrim.contains("[ВОРКЕР") && lineTrim.contains("DTLS") && lineTrim.contains("установлено")) ->
-                            updateLog("dtls_ok", "[СЕРВЕР] DTLS с VPS установлен ✓", 1, false)
+                            updateLog("dtls_ok", "[СЕРВЕР] Защищённое соединение с VPS установлено ✓", 1, false)
                         lineTrim.contains("[КЛИЕНТ]") && (
                             lineTrim.contains("Пир:") || lineTrim.contains("Слушаю:") ||
                                 lineTrim.contains("Воркеров:") || lineTrim.contains("Хешей:") ||
@@ -630,12 +649,19 @@ object TunnelManager {
         }
     }
 
+    private fun markConnectedIfNeeded() {
+        if (connectedSince.value == 0L) {
+            connectedSince.value = System.currentTimeMillis()
+        }
+    }
+
     private fun launchWireGuardIfNeeded() {
         if (wireGuardStarted || !running.value) return
         wireGuardStarted = true
         val configStr = ServerConfig.WG_CONFIG.trim()
         config.value = configStr
         wireGuardExpectedAtMs = System.currentTimeMillis()
+        markConnectedIfNeeded()
         scope.launch(Dispatchers.Main) {
             try {
                 wgHelper?.startTunnel(configStr)
@@ -787,7 +813,7 @@ object TunnelManager {
             }
             line.contains("[ГРУППА") && line.contains("Креды OK") -> {
                 connectionStage.value = ConnectionStage.SERVER_DTLS
-                connectionHint.value = "Шаг 2/2: подключение к VPS (DTLS)…"
+                connectionHint.value = "Шаг 2/2: подключение к VPS (шифрование)…"
             }
             line.contains("[DTLS]", true) || line.contains("WRAP_AUTH", true) ||
                 line.contains("[WRAP]", true) && line.contains("Handshake", true) -> {
@@ -797,6 +823,7 @@ object TunnelManager {
             line.contains("[READY]", true) || line.contains("Активна ✓", true) -> {
                 connectionStage.value = ConnectionStage.VPN_READY
                 connectionHint.value = ""
+                markConnectedIfNeeded()
             }
             line.contains("FATAL_AUTH", true) -> {
                 connectionStage.value = ConnectionStage.FAILED
@@ -823,6 +850,7 @@ object TunnelManager {
         activeWorkers.value = 0
         wireGuardStarted = false
         wireGuardExpectedAtMs = 0L
+        connectedSince.value = 0L
         connectionStage.value = ConnectionStage.IDLE
         connectionHint.value = ""
         connectionSnapshot.value = TunnelConnectionSnapshot()
@@ -840,6 +868,7 @@ object TunnelManager {
             running.value = false
             activeWorkers.value = 0
             wireGuardStarted = false
+            connectedSince.value = 0L
             currentParams = null
             ManlCaptchaWebViewManager.cancelCaptcha()
             CaptchaWebViewActivityLauncher.dismiss()
@@ -990,5 +1019,6 @@ data class TunnelParams(
     val connectionPassword: String = "",
     val protocol: String = "udp",
     val captchaMode: String = "auto",
-    val captchaSolveMethod: String = "auto"
+    val captchaSolveMethod: String = "auto",
+    val provider: String = "vk"
 )

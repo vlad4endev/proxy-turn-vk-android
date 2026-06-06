@@ -13,8 +13,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 import android.os.Build
 
@@ -92,6 +94,9 @@ class SettingsStore(context: Context) {
         private val UPDATE_DIALOG_LAST_ACTION_VERSION = stringPreferencesKey("update_dialog_last_action_version")
         private val UPDATE_DIALOG_LAST_ACTION = stringPreferencesKey("update_dialog_last_action")
         private val UPDATE_DIALOG_LAST_ACTION_AT = longPreferencesKey("update_dialog_last_action_at")
+
+        private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+        private val LINK_CREATED_AT = longPreferencesKey("link_created_at")
 
         private fun <T> getProfileKey(baseKey: Preferences.Key<T>, profile: Int): Preferences.Key<T> {
             if (profile == 0) return baseKey
@@ -273,6 +278,13 @@ class SettingsStore(context: Context) {
     val updateDialogLastAction: Flow<String> = dataStore.data.map { it[UPDATE_DIALOG_LAST_ACTION] ?: "" }
     val updateDialogLastActionAt: Flow<Long> = dataStore.data.map { it[UPDATE_DIALOG_LAST_ACTION_AT] ?: 0L }
 
+    val onboardingDone: Flow<Boolean> = dataStore.data
+        .map { prefs -> prefs[ONBOARDING_DONE] ?: false }
+
+    suspend fun setOnboardingDone() {
+        dataStore.edit { prefs -> prefs[ONBOARDING_DONE] = true }
+    }
+
     suspend fun saveThemeMode(mode: String) {
         dataStore.edit { prefs ->
             prefs[THEME_MODE] = mode
@@ -349,6 +361,18 @@ class SettingsStore(context: Context) {
         dataStore.edit { prefs ->
             val profile = prefs[ACTIVE_PROFILE] ?: 0
             prefs[getProfileKey(WDTT_LINK, profile)] = link
+        }
+    }
+
+    fun getLinkCreatedAt(): Long {
+        return runBlocking {
+            dataStore.data.first()[LINK_CREATED_AT] ?: 0L
+        }
+    }
+
+    suspend fun saveLinkCreatedAt(timestamp: Long) {
+        dataStore.edit { prefs ->
+            prefs[LINK_CREATED_AT] = timestamp
         }
     }
 

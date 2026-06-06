@@ -65,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.wdtt.client.ui.AppUpdateDialog
 import com.wdtt.client.ui.FloatingToolbar
 import com.wdtt.client.ui.LogsTab
+import com.wdtt.client.ui.OnboardingScreen
 import com.wdtt.client.ui.TunnelTab
 import com.wdtt.client.ui.ExceptionsTab
 import com.wdtt.client.ui.InfoTab
@@ -121,26 +122,35 @@ class MainActivity : ComponentActivity() {
             val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle(initialValue = "system")
             val isDynamicColor by settingsStore.isDynamicColor.collectAsStateWithLifecycle(initialValue = false)
             val themePalette by settingsStore.themePalette.collectAsStateWithLifecycle(initialValue = "indigo")
+            val onboardingDone by settingsStore.onboardingDone.collectAsStateWithLifecycle(initialValue = true)
             val scope = rememberCoroutineScope()
 
             WDTTTheme(themeMode = themeMode, dynamicColor = isDynamicColor, themePalette = themePalette) {
-                MainScreen(
-                    settingsStore = settingsStore,
-                    themeMode = themeMode,
-                    onThemeChange = { mode ->
-                        scope.launch {
-                            settingsStore.saveThemeMode(mode)
+                if (!onboardingDone) {
+                    OnboardingScreen(
+                        onFinish = {
+                            scope.launch { settingsStore.setOnboardingDone() }
                         }
-                    },
-                    isDynamicColor = isDynamicColor,
-                    onDynamicColorChange = { enabled ->
-                        scope.launch { settingsStore.saveDynamicColor(enabled) }
-                    },
-                    currentPalette = themePalette,
-                    onPaletteChange = { palette ->
-                        scope.launch { settingsStore.saveThemePalette(palette) }
-                    }
-                )
+                    )
+                } else {
+                    MainScreen(
+                        settingsStore = settingsStore,
+                        themeMode = themeMode,
+                        onThemeChange = { mode ->
+                            scope.launch {
+                                settingsStore.saveThemeMode(mode)
+                            }
+                        },
+                        isDynamicColor = isDynamicColor,
+                        onDynamicColorChange = { enabled ->
+                            scope.launch { settingsStore.saveDynamicColor(enabled) }
+                        },
+                        currentPalette = themePalette,
+                        onPaletteChange = { palette ->
+                            scope.launch { settingsStore.saveThemePalette(palette) }
+                        }
+                    )
+                }
             }
         }
     }
@@ -359,7 +369,9 @@ fun MainScreen(
                         0 -> TunnelTab()
                         2 -> ExceptionsTab()
                         3 -> LogsTab()
-                        4 -> InfoTab()
+                        4 -> InfoTab(onUpdateFound = { release ->
+                            pendingRelease = release
+                        })
                         else -> TunnelTab()
                     }
                 }
@@ -429,7 +441,6 @@ fun MainScreen(
                         action = UPDATE_DIALOG_ACTION_UPDATE,
                         actedAt = System.currentTimeMillis()
                     )
-                    openReleaseUrl(context, release.releaseUrl)
                 }
             }
         )

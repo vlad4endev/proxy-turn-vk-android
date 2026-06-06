@@ -102,11 +102,21 @@ class QuickToggleTileService : TileService() {
             val serverDtlsPort = if (manualPortsEnabled) store.serverDtlsPort.first() else 56000
             val localPort = if (manualPortsEnabled) store.listenPort.first() else 9000
             val peerWithPort = if (basePeer.contains(":")) basePeer else "$basePeer:$serverDtlsPort"
+            val wdttLink = store.wdttLink.first()
+            val provider = if (
+                wdttLink.contains("telemost", ignoreCase = true) ||
+                wdttLink.contains("ya.ru", ignoreCase = true)
+            ) {
+                "yandex"
+            } else {
+                "vk"
+            }
 
             Intent(this, TunnelService::class.java).apply {
                 action = "START"
                 putExtra("peer", peerWithPort)
                 putExtra("vk_hashes", hashes)
+                putExtra("provider", provider)
                 putExtra("secondary_vk_hash", store.secondaryVkHash.first())
                 putExtra("workers_per_hash", store.workersPerHash.first())
                 putExtra("port", localPort)
