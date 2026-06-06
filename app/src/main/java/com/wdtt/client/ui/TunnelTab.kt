@@ -186,8 +186,11 @@ fun TunnelTab() {
     val powerEnabled = tunnelRunning || isStarting ||
         (vkLink.isNotBlank() && vkHash.isNotBlank())
 
-    LaunchedEffect(tunnelRunning) {
-        if (!tunnelRunning) isStarting = false
+    LaunchedEffect(tunnelRunning, activeWorkers) {
+        when {
+            !tunnelRunning -> isStarting = false
+            activeWorkers > 0 -> isStarting = false
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -1469,11 +1472,11 @@ private suspend fun createVkCallLink(): String? {
 }
 
 private fun disconnectTunnel(context: Context) {
-    TunnelManager.stop()
     try {
         context.startService(
             Intent(context, TunnelService::class.java).apply { action = "STOP" }
         )
     } catch (_: Exception) {
+        TunnelManager.stop()
     }
 }
