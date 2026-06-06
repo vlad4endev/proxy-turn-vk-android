@@ -96,6 +96,7 @@ class SettingsStore(context: Context) {
         private val UPDATE_DIALOG_LAST_ACTION_AT = longPreferencesKey("update_dialog_last_action_at")
 
         private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+        private val PERMISSIONS_SETUP_DONE = booleanPreferencesKey("permissions_setup_done")
         private val LINK_CREATED_AT = longPreferencesKey("link_created_at")
 
         private fun <T> getProfileKey(baseKey: Preferences.Key<T>, profile: Int): Preferences.Key<T> {
@@ -281,8 +282,15 @@ class SettingsStore(context: Context) {
     val onboardingDone: Flow<Boolean> = dataStore.data
         .map { prefs -> prefs[ONBOARDING_DONE] ?: false }
 
+    val permissionsSetupDone: Flow<Boolean> = dataStore.data
+        .map { prefs -> prefs[PERMISSIONS_SETUP_DONE] ?: false }
+
     suspend fun setOnboardingDone() {
         dataStore.edit { prefs -> prefs[ONBOARDING_DONE] = true }
+    }
+
+    suspend fun setPermissionsSetupDone() {
+        dataStore.edit { prefs -> prefs[PERMISSIONS_SETUP_DONE] = true }
     }
 
     suspend fun saveThemeMode(mode: String) {

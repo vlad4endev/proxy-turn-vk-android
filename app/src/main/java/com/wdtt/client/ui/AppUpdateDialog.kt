@@ -1,6 +1,8 @@
 package com.wdtt.client.ui
 
-import androidx.compose.foundation.layout.Arrangement
+import com.wdtt.client.ui.theme.AdaptiveLayout
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Update
@@ -59,11 +62,14 @@ fun AppUpdateDialog(
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 8.dp,
-            modifier = Modifier.fillMaxWidth(0.92f)
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = AdaptiveLayout.MaxDialogWidth)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 22.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {

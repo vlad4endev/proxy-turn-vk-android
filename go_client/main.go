@@ -23,6 +23,7 @@ import (
 	"github.com/samosvalishe/free-turn-proxy/internal/logx"
 	"github.com/samosvalishe/free-turn-proxy/internal/provider"
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk"
+	"github.com/samosvalishe/free-turn-proxy/internal/provider/yandex"
 	"github.com/samosvalishe/free-turn-proxy/internal/proxy/bondclient"
 	"github.com/samosvalishe/free-turn-proxy/internal/proxy/tcpfwd"
 	"github.com/samosvalishe/free-turn-proxy/internal/proxy/udprelay"
@@ -212,6 +213,12 @@ func buildProvider(cfg *config.Client, dialer net.Dialer, connected *atomic.Int3
 			Log:             logger,
 			Debug:           cfg.Log.Debug,
 		}, vk.DefaultManualSolver)
+	case config.ProviderYandex:
+		return yandex.New(yandex.Config{
+			Link:            cfg.Yandex.Link,
+			StreamsPerCache: cfg.VK.StreamsPerCred,
+			Log:             logger,
+		})
 	default:
 		return nil, fmt.Errorf("unknown provider %q", cfg.Provider.Name)
 	}

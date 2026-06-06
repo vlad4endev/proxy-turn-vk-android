@@ -81,14 +81,20 @@ type VKOpts struct {
 	ManualCaptcha  bool   // -manual-captcha
 }
 
+// YandexOpts — опции Яндекс Телемост (только клиент, провайдер "yandex").
+type YandexOpts struct {
+	Link string // -link (нормализован до room hash)
+}
+
 // ProviderOpts выбирает реализацию provider.Provider.
 type ProviderOpts struct {
-	Name string // -provider: vk (default)
+	Name string // -provider: vk (default) | yandex
 }
 
 // Известные имена провайдеров.
 const (
-	ProviderVK = "vk"
+	ProviderVK     = "vk"
+	ProviderYandex = "yandex"
 )
 
 // DNSOpts — опции DNS-резолвинга (только клиент).
@@ -115,6 +121,7 @@ type Client struct {
 	Proxy    ProxyOpts
 	Provider ProviderOpts
 	VK       VKOpts
+	Yandex   YandexOpts
 	DNS      DNSOpts
 	Log      LogOpts
 	KCP      KCPOpts
@@ -142,8 +149,8 @@ func ParseClient(args []string, errOut io.Writer) (*Client, error) {
 	turn := fs.String("turn", "", "IP TURN-сервера; override creds провайдера")
 	port := fs.String("port", "", "порт TURN-сервера; override creds провайдера")
 	listen := fs.String("listen", "127.0.0.1:9000", "локальный ip:port для WireGuard/Xray клиента")
-	provider := fs.String("provider", ProviderVK, "источник TURN-creds: vk")
-	link := fs.String("link", "", "ссылка VK Calls https://vk.com/call/join/...; обязательно для -provider vk")
+	provider := fs.String("provider", ProviderVK, "источник TURN-creds: vk | yandex")
+	link := fs.String("link", "", "ссылка VK Calls или Яндекс Телемост; обязательно")
 	peer := fs.String("peer", "", "адрес сервера на VPS, host:port; обязательно")
 	n := fs.Int("n", 10, "число параллельных TURN-потоков")
 	transport := fs.String("transport", "tcp", "транспорт до TURN-реле: tcp | udp")
@@ -279,8 +286,13 @@ func ParseClient(args []string, errOut io.Writer) (*Client, error) {
 			link = link[:idx]
 		}
 		c.VK.Link = link
+	case ProviderYandex:
+		if *link == "" {
+			return nil, errors.New("need -link (required for -provider yandex)")
+		}
+		c.Yandex.Link = *link
 	default:
-		return nil, fmt.Errorf("invalid -provider value %q: must be %s", c.Provider.Name, ProviderVK)
+		return nil, fmt.Errorf("invalid -provider value %q: must be %s or %s", c.Provider.Name, ProviderVK, ProviderYandex)
 	}
 	if err := validateObfProfile(c.Obf.Profile); err != nil {
 		return nil, err

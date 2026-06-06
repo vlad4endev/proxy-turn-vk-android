@@ -1,22 +1,15 @@
 package com.wdtt.client
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.net.VpnService
-import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
 import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -60,15 +53,18 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.view.WindowCompat
 import com.wdtt.client.ui.AppUpdateDialog
+import com.wdtt.client.ui.AdaptiveContentHost
 import com.wdtt.client.ui.ExceptionsTab
 import com.wdtt.client.ui.FloatingToolbar
 import com.wdtt.client.ui.InfoTab
 import com.wdtt.client.ui.LogsTab
 import com.wdtt.client.ui.OnboardingScreen
+import com.wdtt.client.ui.SetupPermissionsScreen
+import com.wdtt.client.ui.ResponsiveLayout
 import com.wdtt.client.ui.SkyflowColors
 import com.wdtt.client.ui.SkyflowShapes
 import com.wdtt.client.ui.TunnelTab
@@ -82,18 +78,6 @@ import kotlin.math.min
 import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
-
-    private val vpnLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // VPN permission dialog finished
-    }
-
-    private val batteryLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        checkAndRequestVpn()
-    }
-
-    private val notificationLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        checkAndRequestBattery()
-    }
 
     companion object {
         var activeActivities = 0
@@ -117,83 +101,54 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        checkAndRequestNotifications()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
             val settingsStore = remember { SettingsStore(this) }
             val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle(initialValue = "system")
             val isDynamicColor by settingsStore.isDynamicColor.collectAsStateWithLifecycle(initialValue = false)
             val themePalette by settingsStore.themePalette.collectAsStateWithLifecycle(initialValue = "indigo")
-            val onboardingDone by settingsStore.onboardingDone.collectAsStateWithLifecycle(initialValue = true)
+            val onboardingDone by settingsStore.onboardingDone.collectAsStateWithLifecycle(initialValue = false)
+            val permissionsSetupDone by settingsStore.permissionsSetupDone.collectAsStateWithLifecycle(initialValue = false)
             val scope = rememberCoroutineScope()
 
             WDTTTheme(themeMode = themeMode, dynamicColor = isDynamicColor, themePalette = themePalette) {
-                if (!onboardingDone) {
-                    OnboardingScreen(
-                        onFinish = {
-                            scope.launch { settingsStore.setOnboardingDone() }
-                        }
-                    )
-                } else {
-                    MainScreen(
-                        settingsStore = settingsStore,
-                        themeMode = themeMode,
-                        onThemeChange = { mode ->
-                            scope.launch {
-                                settingsStore.saveThemeMode(mode)
+                when {
+                    !onboardingDone -> {
+                        OnboardingScreen(
+                            onFinish = {
+                                scope.launch { settingsStore.setOnboardingDone() }
                             }
-                        },
-                        isDynamicColor = isDynamicColor,
-                        onDynamicColorChange = { enabled ->
-                            scope.launch { settingsStore.saveDynamicColor(enabled) }
-                        },
-                        currentPalette = themePalette,
-                        onPaletteChange = { palette ->
-                            scope.launch { settingsStore.saveThemePalette(palette) }
-                        }
-                    )
+                        )
+                    }
+                    !permissionsSetupDone -> {
+                        SetupPermissionsScreen(
+                            onFinish = {
+                                scope.launch { settingsStore.setPermissionsSetupDone() }
+                            }
+                        )
+                    }
+                    else -> {
+                        MainScreen(
+                            settingsStore = settingsStore,
+                            themeMode = themeMode,
+                            onThemeChange = { mode ->
+                                scope.launch {
+                                    settingsStore.saveThemeMode(mode)
+                                }
+                            },
+                            isDynamicColor = isDynamicColor,
+                            onDynamicColorChange = { enabled ->
+                                scope.launch { settingsStore.saveDynamicColor(enabled) }
+                            },
+                            currentPalette = themePalette,
+                            onPaletteChange = { palette ->
+                                scope.launch { settingsStore.saveThemePalette(palette) }
+                            }
+                        )
+                    }
                 }
             }
-        }
-    }
-
-    private fun checkAndRequestNotifications() {
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                checkAndRequestBattery()
-            }
-        } else {
-            checkAndRequestBattery()
-        }
-    }
-
-    private fun checkAndRequestBattery() {
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-            try {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                batteryLauncher.launch(intent)
-            } catch (e: Exception) {
-                checkAndRequestVpn()
-            }
-        } else {
-            checkAndRequestVpn()
-        }
-    }
-
-    private fun checkAndRequestVpn() {
-        try {
-            val vpnIntent = VpnService.prepare(this)
-            if (vpnIntent != null) {
-                vpnLauncher.launch(vpnIntent)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 }
@@ -368,14 +323,16 @@ fun MainScreen(
                         .padding(bottom = contentBottomPadding),
                     label = "tab_content"
                 ) { tab ->
-                    when (tab) {
-                        0 -> TunnelTab()
-                        2 -> ExceptionsTab()
-                        3 -> LogsTab()
-                        4 -> InfoTab(onUpdateFound = { release ->
-                            pendingRelease = release
-                        })
-                        else -> TunnelTab()
+                    AdaptiveContentHost {
+                        when (tab) {
+                            0 -> TunnelTab()
+                            2 -> ExceptionsTab()
+                            3 -> LogsTab()
+                            4 -> InfoTab(onUpdateFound = { release ->
+                                pendingRelease = release
+                            })
+                            else -> TunnelTab()
+                        }
                     }
                 }
 
@@ -495,10 +452,13 @@ private fun ProxyNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-            .padding(horizontal = 22.dp, vertical = 12.dp)
+            .padding(horizontal = 22.dp, vertical = 12.dp),
+        contentAlignment = Alignment.BottomCenter,
     ) {
         val trackPadding = 8.dp
-        val itemWidth = (maxWidth - trackPadding * 2) / navItems.size
+        val barMaxWidth = ResponsiveLayout.MaxNavBarWidth
+        val barWidth = minOf(maxWidth, barMaxWidth)
+        val itemWidth = (barWidth - trackPadding * 2) / navItems.size
         val indicatorOffset = trackPadding + itemWidth * dragVisualIndex
 
         Surface(
@@ -507,7 +467,7 @@ private fun ProxyNavigationBar(
             border = BorderStroke(1.dp, shellBorder),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.width(barWidth)
         ) {
             Box(
                 modifier = Modifier
@@ -538,6 +498,7 @@ private fun ProxyNavigationBar(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
+                                .defaultMinSize(minHeight = 48.dp)
                                 .clip(SkyflowShapes.NavIndicator)
                                 .clickable { onTabSelected(item.id) },
                             verticalArrangement = Arrangement.Center,

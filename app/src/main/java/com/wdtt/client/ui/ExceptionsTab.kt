@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.SettingsStore
+import com.wdtt.client.ui.theme.readableSp
+import com.wdtt.client.ui.theme.adaptivePadding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -117,6 +119,7 @@ fun ExceptionsTab() {
     }
 
     val excludedCount = selectedPackages.size
+    val metrics = rememberScreenMetrics()
 
     Column(
         modifier = Modifier
@@ -127,7 +130,7 @@ fun ExceptionsTab() {
 
         // Mode block
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = metrics.contentHorizontalPadding),
             shape = SkyflowShapes.Card,
             color = SkyflowColors.GlassSurface,
             border = SkyflowBorders.Glass
@@ -141,7 +144,7 @@ fun ExceptionsTab() {
                 ) {
                     Text(
                         "Режим исключений",
-                        fontSize = 9.sp,
+                        fontSize = readableSp(12f),
                         fontWeight = FontWeight.SemiBold,
                         color = SkyflowColors.TextPrimary
                     )
@@ -165,7 +168,7 @@ fun ExceptionsTab() {
                         ) {
                             Text(
                                 "Чёрный список",
-                                fontSize = 8.sp,
+                                fontSize = readableSp(12f),
                                 fontWeight = FontWeight.Bold,
                                 color = if (isBlacklistActive) SkyflowColors.OnAccent else SkyflowColors.TextSecondary,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
@@ -190,7 +193,7 @@ fun ExceptionsTab() {
                         ) {
                             Text(
                                 "Белый список",
-                                fontSize = 8.sp,
+                                fontSize = readableSp(12f),
                                 fontWeight = FontWeight.Bold,
                                 color = if (isWhitelistActive) SkyflowColors.OnAccent else SkyflowColors.TextSecondary,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
@@ -203,7 +206,7 @@ fun ExceptionsTab() {
                 Text(
                     text = if (!isWhitelist) "Выбранные приложения не используют VPN-туннель"
                            else "Только выбранные приложения используют VPN-туннель",
-                    fontSize = 7.5.sp,
+                    fontSize = readableSp(12f),
                     color = SkyflowColors.TextSecondary,
                     lineHeight = 11.sp
                 )
@@ -221,7 +224,7 @@ fun ExceptionsTab() {
                 ) {
                     Text(
                         "Системные приложения",
-                        fontSize = 9.sp,
+                        fontSize = readableSp(12f),
                         color = SkyflowColors.TextPrimary
                     )
                     Switch(
@@ -240,7 +243,7 @@ fun ExceptionsTab() {
 
         // Search
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = metrics.contentHorizontalPadding),
             shape = SkyflowShapes.SearchField,
             color = SkyflowColors.GlassSurface,
             border = SkyflowBorders.Glass
@@ -260,14 +263,14 @@ fun ExceptionsTab() {
                     if (searchQuery.isEmpty()) {
                         Text(
                             "Поиск приложений...",
-                            fontSize = 10.sp,
+                            fontSize = readableSp(12f),
                             color = SkyflowColors.TextSecondary
                         )
                     }
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        textStyle = TextStyle(fontSize = 9.sp, color = SkyflowColors.TextPrimary),
+                        textStyle = TextStyle(fontSize = readableSp(12f), color = SkyflowColors.TextPrimary),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -280,19 +283,19 @@ fun ExceptionsTab() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = metrics.contentHorizontalPadding, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 "ПРИЛОЖЕНИЯ",
-                fontSize = 8.sp,
+                fontSize = readableSp(12f),
                 color = SkyflowColors.TextSecondary,
                 letterSpacing = 0.6.sp
             )
             Text(
                 "$excludedCount исключено",
-                fontSize = 8.sp,
+                fontSize = readableSp(12f),
                 color = SkyflowColors.Accent,
                 fontWeight = FontWeight.SemiBold
             )
@@ -300,15 +303,27 @@ fun ExceptionsTab() {
 
         // App list
         if (isLoading || showSystemAppsOpt == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
                 CircularProgressIndicator()
             }
         } else {
             val listState = rememberLazyListState()
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 16.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(
+                    start = metrics.contentHorizontalPadding,
+                    top = 0.dp,
+                    end = metrics.contentHorizontalPadding,
+                    bottom = 16.dp,
+                ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(filteredApps, key = { it.packageName }) { app ->
@@ -369,7 +384,7 @@ fun AppRow(app: AppItem, isSelected: Boolean, onClick: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(
                     text = app.name,
-                    fontSize = 9.sp,
+                    fontSize = readableSp(12f),
                     fontWeight = FontWeight.Medium,
                     color = SkyflowColors.TextPrimary,
                     maxLines = 1,
@@ -377,7 +392,7 @@ fun AppRow(app: AppItem, isSelected: Boolean, onClick: () -> Unit) {
                 )
                 Text(
                     text = app.packageName,
-                    fontSize = 7.sp,
+                    fontSize = readableSp(12f),
                     color = SkyflowColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

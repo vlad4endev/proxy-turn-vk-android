@@ -9,6 +9,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,7 +74,9 @@ fun FloatingToolbar(
 
     val tabWidthDp = 42.dp
     val tabHeightDp = 52.dp
-    val panelWidthDp = 220.dp
+    val panelWidthDp = remember(configuration.screenWidthDp) {
+        (configuration.screenWidthDp - 64).coerceIn(180, 280).dp
+    }
 
     val tabWidthPx = remember(density) { with(density) { tabWidthDp.toPx() } }
     val fallbackTabHeightPx = remember(density) { with(density) { tabHeightDp.toPx() } }
@@ -176,8 +180,15 @@ fun FloatingToolbar(
                 shadowElevation = 0.dp,
                 tonalElevation = 0.dp,
             ) {
+                val maxPanelHeight = with(density) {
+                    (configuration.screenHeightDp.dp - 32.dp)
+                }
                 Column(
-                    modifier = Modifier.padding(12.dp).width(panelWidthDp - 24.dp),
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .widthIn(max = panelWidthDp - 24.dp)
+                        .heightIn(max = maxPanelHeight)
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(

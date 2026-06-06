@@ -81,11 +81,12 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
             SkyflowColors.TextSecondary
         }
     }
+    val metrics = rememberScreenMetrics()
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = metrics.contentHorizontalPadding),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {

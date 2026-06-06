@@ -40,6 +40,8 @@ import com.wdtt.client.ServerConfig
 import com.wdtt.client.TunnelConnectionSnapshot
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.SettingsStore
+import com.wdtt.client.ui.theme.adaptivePadding
+import com.wdtt.client.ui.theme.readableSp
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -95,6 +97,7 @@ fun LogsTab() {
     val pathNodes = remember(tunnelRunning, connectionStage, currentLogs) {
         buildPathNodes(tunnelRunning, connectionStage, currentLogs)
     }
+    val metrics = rememberScreenMetrics()
 
     LaunchedEffect(filteredLogs.size) {
         if (filteredLogs.isNotEmpty()) {
@@ -105,7 +108,7 @@ fun LogsTab() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = metrics.contentHorizontalPadding, vertical = adaptivePadding())
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -149,7 +152,9 @@ fun LogsTab() {
         Spacer(Modifier.height(8.dp))
 
         Card(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = SkyflowColors.GlassSurface),
             shape = RoundedCornerShape(20.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -214,7 +219,9 @@ private fun ConnectionPathCard(
         Column(Modifier.padding(10.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
             ) {
                 nodes.forEachIndexed { i, nodeUi ->
                     val dotColor = when (nodeUi.state) {
@@ -231,12 +238,12 @@ private fun ConnectionPathCard(
                                 .background(dotColor)
                         )
                         Spacer(Modifier.height(2.dp))
-                        Text(nodeUi.node.short, fontSize = 6.sp, color = SkyflowColors.TextSecondary)
+                        Text(nodeUi.node.short, fontSize = readableSp(12f), color = SkyflowColors.TextSecondary, maxLines = 1)
                     }
                     if (i < nodes.size - 1) {
                         Text(
                             "→",
-                            fontSize = 8.sp,
+                            fontSize = readableSp(12f),
                             color = SkyflowColors.NodeIdle,
                             modifier = Modifier
                                 .padding(horizontal = 4.dp)
@@ -251,8 +258,10 @@ private fun ConnectionPathCard(
             Spacer(Modifier.height(6.dp))
 
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 LogMetaItem("Этап", stageLabel, stageColor(stage, running))
                 LogMetaItem("Потоки", snapshot.workers.toString(), SkyflowColors.TextAccent)
@@ -262,7 +271,7 @@ private fun ConnectionPathCard(
 
             if (hint.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
-                Text(hint, fontSize = 8.sp, color = SkyflowColors.ErrorColor, lineHeight = 12.sp)
+                Text(hint, fontSize = readableSp(12f), color = SkyflowColors.ErrorColor, lineHeight = 18.sp)
             }
         }
     }
@@ -273,11 +282,11 @@ private fun LogMetaItem(key: String, value: String, valueColor: Color) {
     Column {
         Text(
             key.uppercase(),
-            fontSize = 6.sp,
+            fontSize = readableSp(12f),
             color = SkyflowColors.TextSecondary,
             letterSpacing = 0.6.sp
         )
-        Text(value, fontSize = 7.sp, color = valueColor)
+        Text(value, fontSize = readableSp(12f), color = valueColor, maxLines = 1)
     }
 }
 
@@ -305,7 +314,7 @@ private fun LogFilterRow(selected: LogFilter, onSelect: (LogFilter) -> Unit) {
                 ) {
                     Text(
                         filter.label,
-                        fontSize = 8.sp,
+                        fontSize = readableSp(12f),
                         color = if (isSelected) SkyflowColors.OnAccent else SkyflowColors.TextSecondary
                     )
                 }
@@ -373,7 +382,7 @@ fun LogLine(entry: LogEntry) {
             Column(modifier = Modifier.width(32.dp)) {
                 Text(
                     timeStr,
-                    fontSize = 8.sp,
+                    fontSize = readableSp(12f),
                     color = SkyflowColors.TextSecondary,
                     fontFamily = FontFamily.Monospace
                 )
@@ -384,7 +393,7 @@ fun LogLine(entry: LogEntry) {
                 ) {
                     Text(
                         tag,
-                        fontSize = 8.sp,
+                        fontSize = readableSp(12f),
                         fontWeight = FontWeight.Bold,
                         color = tagColor,
                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
@@ -399,7 +408,7 @@ fun LogLine(entry: LogEntry) {
             ) {
                 Text(
                     text = displayMessage,
-                    fontSize = 9.sp,
+                    fontSize = readableSp(12f),
                     lineHeight = 13.sp,
                     color = SkyflowColors.TextPrimary,
                     modifier = Modifier.weight(1f)
@@ -419,7 +428,7 @@ fun LogLine(entry: LogEntry) {
                             Text(
                                 text = "×${entry.count}",
                                 color = SkyflowColors.TextAccent,
-                                fontSize = 7.sp,
+                                fontSize = readableSp(12f),
                                 fontWeight = FontWeight.Bold
                             )
                         }

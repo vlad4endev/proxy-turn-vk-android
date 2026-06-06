@@ -90,6 +90,7 @@ object TunnelManager {
     private var forceRegenerateUA = false // принудительная перегенерация UA при ошибках
     private var currentCaptchaMode = "wv" // режим обхода капчи: "wv" или "rjs"
     private var currentCaptchaSolveMethod = "auto" // "manual" или "auto"
+    private var currentLinkProvider = LinkProvider.UNKNOWN
 
     @Volatile
     var isLoggingEnabled = true
@@ -132,6 +133,7 @@ object TunnelManager {
     private fun categorizeLog(message: String, isError: Boolean): LogCategory = when {
         message.startsWith("[ДЕПЛОЙ]") -> LogCategory.DEPLOY
         message.startsWith("[ВК]") || message.contains("[VK", ignoreCase = true) -> LogCategory.VK
+        message.startsWith("[ЯНДЕКС]") -> LogCategory.VK
         message.startsWith("[КАПЧА") -> LogCategory.CAPTCHA
         message.startsWith("[TURN]") -> LogCategory.TURN
         message.startsWith("[WRAP]") -> LogCategory.WRAP
@@ -142,6 +144,8 @@ object TunnelManager {
         isError -> LogCategory.ERROR
         else -> LogCategory.SYSTEM
     }
+
+    private fun isVkCaptchaFlow(): Boolean = currentLinkProvider != LinkProvider.YANDEX
 
     private fun updateLog(key: String, message: String, priority: Int, isError: Boolean = false) {
         if (!isLoggingEnabled) return
@@ -222,12 +226,27 @@ object TunnelManager {
         scope.launch {
             try {
                 val vkLink = if (activeHashIndex == 0) params.vkHashes else params.secondaryVkHash
-                val linkProvider = VkHashParser.detectProvider(vkLink)
+                val linkProvider = YandexParser.detectProvider(vkLink).let { detected ->
+                    if (detected != LinkProvider.UNKNOWN) detected
+                    else when (params.provider.lowercase()) {
+                        "yandex" -> LinkProvider.YANDEX
+                        "vk" -> LinkProvider.VK
+                        else -> LinkProvider.UNKNOWN
+                    }
+                }
+                currentLinkProvider = linkProvider
+
+                val normalizedLink = when (linkProvider) {
+                    LinkProvider.YANDEX -> YandexParser.normalizeLink(vkLink).ifBlank { vkLink }
+                    LinkProvider.VK -> VkHashParser.parse(vkLink).ifBlank { vkLink }
+                    LinkProvider.UNKNOWN -> vkLink
+                }
 
                 val isValidLink = when (linkProvider) {
-                    LinkProvider.VK -> vkLink.contains("call/join/", ignoreCase = true) ||
-                        vkLink.matches(Regex("[A-Za-z0-9_\\-]{10,}"))
-                    LinkProvider.YANDEX -> vkLink.contains("/j/", ignoreCase = true) ||
+                    LinkProvider.VK -> normalizedLink.contains("call/join/", ignoreCase = true) ||
+                        normalizedLink.matches(Regex("[A-Za-z0-9_\\-]{10,}"))
+                    LinkProvider.YANDEX -> YandexParser.parse(vkLink).isNotBlank() ||
+                        vkLink.contains("/j/", ignoreCase = true) ||
                         vkLink.contains("telemost", ignoreCase = true)
                     LinkProvider.UNKNOWN -> vkLink.matches(Regex("[A-Za-z0-9_\\-]{10,}"))
                 }
@@ -256,10 +275,19 @@ object TunnelManager {
                     captchaSolve = params.captchaSolveMethod
                 )
                 updateLog("config_info", "[$hashMode] Хешей=$hashCount, Потоков=$totalWorkers", 1)
-                updateLog("path_start", "[ПУТЬ] Телефон → VK → TURN → VPS ${params.peer} → Защита", 0)
-                updateLog("server_peer", "[СЕРВЕР] VPS ${params.peer} (шифрование/WRAP после VK-кредов)", 1)
+                val pathLabel = if (linkProvider == LinkProvider.YANDEX) {
+                    "[ПУТЬ] Телефон → Яндекс → TURN → VPS ${params.peer} → Защита"
+                } else {
+                    "[ПУТЬ] Телефон → VK → TURN → VPS ${params.peer} → Защита"
+                }
+                updateLog("path_start", pathLabel, 0)
+                updateLog("server_peer", "[СЕРВЕР] VPS ${params.peer} (шифрование/WRAP после получения кредов)", 1)
                 connectionStage.value = ConnectionStage.VK_CREDS
-                connectionHint.value = "Шаг 1/2: авторизация VK…"
+                connectionHint.value = if (linkProvider == LinkProvider.YANDEX) {
+                    "Шаг 1/2: авторизация Яндекс Телемост…"
+                } else {
+                    "Шаг 1/2: авторизация VK…"
+                }
 
                 val binaryPath = context.applicationInfo.nativeLibraryDir + "/libclient.so"
                 val binaryFile = File(binaryPath)
@@ -282,15 +310,17 @@ object TunnelManager {
                 val cmd = mutableListOf(
                     binaryPath,
                     "-peer", params.peer,
-                    "-link", vkLink,
+                    "-link", normalizedLink,
                     "-listen", "127.0.0.1:${params.port}",
                     "-obf-profile", "rtpopus",
                     "-obf-key", ServerConfig.OBF_KEY,
                     "-provider", providerFlag,
                     "-n", totalWorkers.toString()
                 )
-                cmd.add("-captcha-solve")
-                cmd.add("auto")
+                if (isVkCaptchaFlow()) {
+                    cmd.add("-captcha-solve")
+                    cmd.add("auto")
+                }
 
                 val pb = ProcessBuilder(cmd)
                 pb.directory(context.filesDir)
@@ -401,6 +431,10 @@ object TunnelManager {
                     }
 
                     if (lineTrim.startsWith("CAPTCHA_SOLVE|")) {
+                        if (!isVkCaptchaFlow()) {
+                            writeCaptchaResult("error:yandex provider does not use vk captcha")
+                            return@forEachLine
+                        }
                         val payload = lineTrim.substringAfter("CAPTCHA_SOLVE|")
                         val parts = payload.split("|", limit = 3)
                         when (parts.size) {
@@ -479,7 +513,7 @@ object TunnelManager {
                     }
 
                     when {
-                        lineTrim.contains("[КАПЧА] AUTO:") -> {
+                        isVkCaptchaFlow() && lineTrim.contains("[КАПЧА] AUTO:") -> {
                             var text = lineTrim.substringAfter("[КАПЧА] AUTO:").trim()
                             text = text.replace(Regex("\\s*\\([^)]+\\)\\s*"), " ").trim()
 
@@ -498,7 +532,7 @@ object TunnelManager {
                             updateLog(stableKey, "[КАПЧА AUTO] $text", 5, isErr)
                         }
 
-                        lineTrim.contains("[КАПЧА] RJS:") -> {
+                        isVkCaptchaFlow() && lineTrim.contains("[КАПЧА] RJS:") -> {
                             var text = lineTrim.substringAfter("[КАПЧА] RJS:").trim()
                             text = text.replace(Regex("\\s*\\([^)]+\\)\\s*"), " ").trim()
                             
@@ -514,7 +548,7 @@ object TunnelManager {
                             updateLog(stableKey, "[КАПЧА RJS] $text", 5, false)
                         }
 
-                        lineTrim.contains("[КАПЧА] WBV:") -> {
+                        isVkCaptchaFlow() && lineTrim.contains("[КАПЧА] WBV:") -> {
                             var text = lineTrim.substringAfter("[КАПЧА] WBV:").trim()
                             text = text.replace(Regex("\\s*\\([^)]+\\)\\s*"), " ").trim()
                             
@@ -562,10 +596,16 @@ object TunnelManager {
                                 text.contains("Rate limit", true)
                             updateLog("vk_auth_${text.take(24).hashCode()}", "[ВК] $text", 2, isVkErr)
                         }
-                        lineTrim.contains("8765") ||
+                        lineTrim.contains("[STREAM") && lineTrim.contains("[Yandex") -> {
+                            val text = lineTrim.substringAfter("[Yandex").trim().ifBlank { lineTrim }
+                            updateLog("yandex_auth_${text.take(24).hashCode()}", "[ЯНДЕКС] $text", 2, false)
+                        }
+                        isVkCaptchaFlow() && (
+                            lineTrim.contains("8765") ||
                             lineTrim.contains("Opening browser") ||
                             lineTrim.contains("manual-captcha", ignoreCase = true) ||
-                            lineTrim.contains("proxy HTTP server") -> {
+                            lineTrim.contains("proxy HTTP server")
+                        ) -> {
                             val ctx = lastContext
                             if (ctx != null) {
                                 scope.launch(Dispatchers.Main) {
@@ -579,11 +619,13 @@ object TunnelManager {
                                 false
                             )
                         }
-                        lineTrim.contains("Решаю VK Smart Captcha") ->
+                        isVkCaptchaFlow() && lineTrim.contains("Решаю VK Smart Captcha") ->
                             updateLog("captcha_start", "[КАПЧА] Решение капчи...", 5, false)
-                        lineTrim.contains("Smart Captcha решена") ->
+                        isVkCaptchaFlow() && lineTrim.contains("Smart Captcha решена") ->
                             updateLog("captcha_done", "[КАПЧА] Капча решена ✓", 5, false)
-                        lineTrim.contains("капча не решена") || lineTrim.contains("ошибка решения капчи") ->
+                        isVkCaptchaFlow() && (
+                            lineTrim.contains("капча не решена") || lineTrim.contains("ошибка решения капчи")
+                        ) ->
                             updateLog("captcha_failed", "[КАПЧА] Ошибка решения капчи", 5, true)
                         lineTrim.contains("[WRAP]") -> {
                             val text = lineTrim.substringAfter("[WRAP]").trim()
@@ -830,8 +872,8 @@ object TunnelManager {
 
     private fun mapGoLineToStage(line: String) {
         when {
-            line.contains("[КАПЧА]", true) || line.contains("Captcha", true) ||
-                line.contains("CAPTCHA", true) -> {
+            (line.contains("[КАПЧА]", true) || line.contains("Captcha", true) ||
+                line.contains("CAPTCHA", true)) && isVkCaptchaFlow() -> {
                 connectionStage.value = ConnectionStage.VK_CAPTCHA
                 connectionHint.value = "VK запросил капчу — не закрывайте приложение"
             }
@@ -887,6 +929,7 @@ object TunnelManager {
         connectionHint.value = ""
         connectionSnapshot.value = TunnelConnectionSnapshot()
         currentParams = null
+        currentLinkProvider = LinkProvider.UNKNOWN
         ManlCaptchaWebViewManager.cancelCaptcha()
         CaptchaWebViewActivityLauncher.dismiss()
     }

@@ -9,50 +9,13 @@ object VkHashParser {
 
     private val HASH_RE = Regex("""^[A-Za-z0-9_\-]{10,}$""")
     private val JOIN_RE = Regex("""(?:call/join/)([A-Za-z0-9_\-]+)""", RegexOption.IGNORE_CASE)
-    private val TELEMOST_JOIN_RE = Regex("""(?:telemost/j/|/j/)([A-Za-z0-9_\-]+)""", RegexOption.IGNORE_CASE)
-
     // ── Provider detection ────────────────────────────────────────────────────
 
-    fun detectProvider(input: String): LinkProvider {
-        val lower = input.trim().lowercase()
-        return when {
-            lower.contains("telemost") || lower.contains("ya.ru/telemost") -> LinkProvider.YANDEX
-            lower.contains("vk.com") || lower.contains("vk.me") ||
-                lower.contains("vk.ru") || lower.startsWith("vk://") -> LinkProvider.VK
-            else -> LinkProvider.UNKNOWN
-        }
-    }
+    fun detectProvider(input: String): LinkProvider = YandexParser.detectProvider(input)
 
     // ── Yandex Telemost parsing ───────────────────────────────────────────────
 
-    fun parseYandex(input: String): String {
-        var s = input.trim().trim('<', '>', '"', '\'')
-        if (s.isBlank()) return ""
-        val lower = s.lowercase()
-
-        // yandex://telemost/j/HASH
-        if (lower.startsWith("yandex://telemost")) {
-            val path = s.substring("yandex://telemost".length).trimStart('/')
-            TELEMOST_JOIN_RE.find("telemost/$path")?.groupValues?.get(1)?.let { return cleanTail(it) }
-            if (path.lowercase().startsWith("j/")) return cleanTail(path.substring(2))
-        }
-
-        val yandexPrefixes = listOf(
-            "https://telemost.yandex.ru/j/",
-            "http://telemost.yandex.ru/j/",
-            "telemost.yandex.ru/j/",
-            "https://ya.ru/telemost/j/",
-            "http://ya.ru/telemost/j/",
-            "ya.ru/telemost/j/"
-        )
-        for (prefix in yandexPrefixes) {
-            if (lower.startsWith(prefix)) return cleanTail(s.substring(prefix.length))
-        }
-
-        TELEMOST_JOIN_RE.find(s)?.groupValues?.get(1)?.let { return cleanTail(it) }
-
-        return ""
-    }
+    fun parseYandex(input: String): String = YandexParser.parse(input)
 
     fun parse(input: String): String {
         var s = input.trim().trim('<', '>', '"', '\'')

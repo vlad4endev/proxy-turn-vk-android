@@ -202,21 +202,21 @@ val interFontFamily = FontFamily(
     Font(googleFont = interGoogleFont, fontProvider = googleFontProvider, weight = FontWeight.Bold),
 )
 
-object SkyflowTypography {
+object SkyflowTextStyles {
     val labelUppercase = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 10.sp,
+        fontSize = 12.sp,
         letterSpacing = 1.2.sp,
     )
     val statusTitle = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
+        fontSize = 20.sp,
     )
     val cardTitle = TextStyle(
         fontFamily = interFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
+        fontSize = 14.sp,
     )
 }

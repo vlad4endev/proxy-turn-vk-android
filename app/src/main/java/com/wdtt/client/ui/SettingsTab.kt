@@ -50,6 +50,9 @@ import com.wdtt.client.TunnelManager
 import com.wdtt.client.TunnelService
 import com.wdtt.client.VkHashParser
 import com.wdtt.client.WDTTColors
+import com.wdtt.client.ui.theme.AdaptiveLayout
+import com.wdtt.client.ui.theme.adaptivePadding
+import com.wdtt.client.ui.theme.adaptiveScreenInsets
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -70,13 +73,7 @@ fun SettingsTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settingsStore = remember { SettingsStore(context) }
-
-    val currentDensity = LocalDensity.current
-    CompositionLocalProvider(
-        LocalDensity provides Density(currentDensity.density, fontScale = 1f)
-    ) {
-        SettingsTabContent(context, scope, settingsStore)
-    }
+    SettingsTabContent(context, scope, settingsStore)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -399,7 +396,8 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(16.dp),
+            .adaptiveScreenInsets()
+            .padding(adaptivePadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
