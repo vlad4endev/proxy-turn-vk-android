@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 import android.os.Build
+import com.wdtt.client.xray.VlessServer
 
 class SettingsStore(context: Context) {
     private val appContext = context.applicationContext
@@ -103,6 +104,14 @@ class SettingsStore(context: Context) {
         private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
         private val PERMISSIONS_SETUP_DONE = booleanPreferencesKey("permissions_setup_done")
         private val LINK_CREATED_AT = longPreferencesKey("link_created_at")
+
+        // ═══ VLESS Subscription / Manual ═══
+        private val VLESS_INPUT_MODE = stringPreferencesKey("vless_input_mode")
+        private val VLESS_MANUAL_URI = stringPreferencesKey("vless_manual_uri")
+        private val SUB_URL = stringPreferencesKey("sub_url")
+        private val SUB_SERVERS = stringPreferencesKey("sub_servers")
+        private val SUB_SELECTED = intPreferencesKey("sub_selected")
+        private val SUB_UPDATED_AT = longPreferencesKey("sub_updated_at")
 
         private fun <T> getProfileKey(baseKey: Preferences.Key<T>, profile: Int): Preferences.Key<T> {
             if (profile == 0) return baseKey
@@ -592,6 +601,59 @@ class SettingsStore(context: Context) {
             val profile = prefs[ACTIVE_PROFILE] ?: 0
             prefs[getProfileKey(EXCLUDED_APPS, profile)] = packages
             prefs[getProfileKey(IS_WHITELIST, profile)] = isWhitelist
+        }
+    }
+
+    // ═══ VLESS Subscription / Manual ═══
+
+    fun getVlessInputMode(): String = runBlocking {
+        dataStore.data.first()[VLESS_INPUT_MODE] ?: "manual"
+    }
+
+    suspend fun saveVlessInputMode(mode: String) {
+        dataStore.edit { prefs -> prefs[VLESS_INPUT_MODE] = mode }
+    }
+
+    fun getManualVlessUri(): String = runBlocking {
+        dataStore.data.first()[VLESS_MANUAL_URI] ?: ""
+    }
+
+    suspend fun saveManualVlessUri(uri: String) {
+        dataStore.edit { prefs -> prefs[VLESS_MANUAL_URI] = uri }
+    }
+
+    fun getSubscriptionUrl(): String = runBlocking {
+        dataStore.data.first()[SUB_URL] ?: ""
+    }
+
+    suspend fun saveSubscriptionUrl(url: String) {
+        dataStore.edit { prefs -> prefs[SUB_URL] = url }
+    }
+
+    fun getSelectedServerIndex(): Int = runBlocking {
+        dataStore.data.first()[SUB_SELECTED] ?: 0
+    }
+
+    suspend fun saveSelectedServerIndex(index: Int) {
+        dataStore.edit { prefs -> prefs[SUB_SELECTED] = index }
+    }
+
+    fun getLastSubUpdate(): Long = runBlocking {
+        dataStore.data.first()[SUB_UPDATED_AT] ?: 0L
+    }
+
+    suspend fun saveLastSubUpdate(timestamp: Long) {
+        dataStore.edit { prefs -> prefs[SUB_UPDATED_AT] = timestamp }
+    }
+
+    fun loadServers(): List<VlessServer> = runBlocking {
+        val json = dataStore.data.first()[SUB_SERVERS] ?: "[]"
+        VlessServer.listFromJson(json)
+    }
+
+    suspend fun saveServers(servers: List<VlessServer>) {
+        dataStore.edit { prefs ->
+            prefs[SUB_SERVERS] = VlessServer.listToJson(servers)
         }
     }
 

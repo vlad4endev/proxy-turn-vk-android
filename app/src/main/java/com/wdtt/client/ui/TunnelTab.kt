@@ -38,6 +38,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -164,6 +167,8 @@ fun TunnelTab() {
     }
     var linkProvider by remember { mutableStateOf(LinkProvider.UNKNOWN) }
     var linkStatus by remember { mutableStateOf(LinkStatus.IDLE) }
+    var showServersScreen by rememberSaveable { mutableStateOf(false) }
+    val activeSpeedServer by TunnelManager.activeSpeedServer.collectAsStateWithLifecycle()
 
     fun detectProvider(link: String): LinkProvider = YandexParser.detectProvider(link)
 
@@ -503,8 +508,75 @@ fun TunnelTab() {
             isConnecting = isConnecting,
             isConnected = isConnected,
             elapsedSec = elapsedSec,
-            hint = connectionHint
+            hint = connectionHint,
+            speedServer = if (isSpeedMode) activeSpeedServer else null
         )
+
+        AnimatedVisibility(
+            visible = isSpeedMode && !tunnelRunning && !isStarting,
+            enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+        ) {
+            val servers = remember(showServersScreen) { store.loadServers() }
+            val selectedIdx = remember(showServersScreen) { store.getSelectedServerIndex() }
+            val serverCount = servers.size
+            val selectedName = servers.getOrNull(selectedIdx)?.name ?: "Не выбран"
+            val summary = if (serverCount > 0) {
+                "$serverCount серверов · $selectedName"
+            } else {
+                "Настроить серверы"
+            }
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showServersScreen = true },
+                shape = SkyflowShapes.Card,
+                color = SkyflowColors.GlassSurface,
+                border = SkyflowBorders.Glass
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            Icons.Default.Dns,
+                            contentDescription = null,
+                            tint = SkyflowColors.AccentLight,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column {
+                            Text(
+                                "Серверы",
+                                style = SkyflowTextStyles.labelUppercase,
+                                color = SkyflowColors.AccentLight
+                            )
+                            Text(
+                                summary,
+                                fontSize = readableSp(12f),
+                                color = SkyflowColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = SkyflowColors.TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
 
         AnimatedVisibility(
             visible = !isConnected && !isSpeedMode,
@@ -935,7 +1007,9 @@ fun TunnelTab() {
         ServerStatusRow(
             tunnelRunning = tunnelRunning || isStarting,
             isConnecting = isConnecting,
-            isConnected = isConnected
+            isConnected = isConnected,
+            isSpeedMode = isSpeedMode,
+            speedServer = activeSpeedServer
         )
 
         Spacer(Modifier.height(12.dp))
@@ -1198,6 +1272,13 @@ fun TunnelTab() {
                 isVisible = showCaptcha,
                 onDismiss = { TunnelManager.dismissCaptchaModal() },
                 onCaptchaSolved = { TunnelManager.onCaptchaSolved() }
+            )
+        }
+
+        if (showServersScreen) {
+            ServersScreen(
+                settingsStore = store,
+                onBack = { showServersScreen = false }
             )
         }
     }
@@ -1487,7 +1568,8 @@ private fun StatusLabel(
     isConnecting: Boolean,
     isConnected: Boolean,
     elapsedSec: Long,
-    hint: String
+    hint: String,
+    speedServer: com.wdtt.client.xray.VlessServer? = null
 ) {
     val color = when {
         !tunnelRunning -> SkyflowColors.Idle
@@ -1515,11 +1597,41 @@ private fun StatusLabel(
             color = color,
         )
         if (isConnected) {
-            Text(
-                "Соединение защищено",
-                style = MaterialTheme.typography.bodySmall,
-                color = SkyflowColors.TextSecondary,
-            )
+            if (speedServer != null) {
+                Text(
+                    speedServer.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SkyflowColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val protocolLabel = buildString {
+                    append("VLESS")
+                    if (speedServer.type != "tcp") append(" · ${speedServer.type.uppercase()}")
+                    when (speedServer.security) {
+                        "tls" -> append(" · TLS")
+                        "reality" -> append(" · Reality")
+                    }
+                }
+                Text(
+                    protocolLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SkyflowColors.TextMuted,
+                )
+                if (speedServer.latency > 0) {
+                    Text(
+                        "${speedServer.latency} ms",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SkyflowColors.Connected,
+                    )
+                }
+            } else {
+                Text(
+                    "Соединение защищено",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SkyflowColors.TextSecondary,
+                )
+            }
         }
         if (isConnecting && hint.isNotBlank()) {
             Text(
@@ -1536,25 +1648,45 @@ private fun StatusLabel(
 private fun ServerStatusRow(
     tunnelRunning: Boolean,
     isConnecting: Boolean,
-    isConnected: Boolean
+    isConnected: Boolean,
+    isSpeedMode: Boolean = false,
+    speedServer: com.wdtt.client.xray.VlessServer? = null
 ) {
     val dotColor = when {
         !tunnelRunning -> SkyflowColors.Placeholder
         isConnecting -> SkyflowColors.Connecting
         else -> SkyflowColors.Connected
     }
+    val header = if (isSpeedMode) "VLESS СЕРВЕР" else "ОБЛАЧНЫЙ РЕЛЕЙ"
     val statusText = when {
-        !tunnelRunning -> "Облачный релей · ожидание"
-        isConnecting -> "Облачный релей · подключение..."
-        isConnected -> "Облачный релей · активен"
-        else -> "Облачный релей · готов"
+        !tunnelRunning -> if (isSpeedMode) "ожидание" else "ожидание"
+        isConnecting -> "подключение..."
+        isConnected && isSpeedMode && speedServer != null -> {
+            buildString {
+                append(speedServer.name)
+                if (speedServer.latency > 0) append(" · ${speedServer.latency}ms")
+            }
+        }
+        isConnected -> "активен"
+        else -> "готов"
     }
+    val subtitle = if (isConnected && isSpeedMode && speedServer != null) {
+        buildString {
+            append("VLESS")
+            if (speedServer.type != "tcp") append(" · ${speedServer.type.uppercase()}")
+            when (speedServer.security) {
+                "tls" -> append(" · TLS")
+                "reality" -> append(" · Reality")
+            }
+        }
+    } else null
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
-            "ОБЛАЧНЫЙ РЕЛЕЙ",
+            header,
             style = SkyflowTextStyles.labelUppercase,
             color = SkyflowColors.TextMuted
         )
@@ -1563,7 +1695,10 @@ private fun ServerStatusRow(
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Canvas(Modifier.size(5.dp)) { drawCircle(dotColor) }
-            Text(statusText.substringAfter(" · "), fontSize = readableSp(12f), color = dotColor)
+            Text(statusText, fontSize = readableSp(12f), color = dotColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        subtitle?.let {
+            Text(it, fontSize = readableSp(10f), color = SkyflowColors.TextMuted)
         }
     }
 }

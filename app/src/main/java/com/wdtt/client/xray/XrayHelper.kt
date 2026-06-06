@@ -45,6 +45,39 @@ class XrayHelper(context: Context) {
     // -------------------------------------------------------------------------
 
     /**
+     * Generates an Xray JSON config for the given [VlessServer].
+     * Supports tcp, ws, grpc with none/tls/reality security.
+     */
+    fun generateConfigFromServer(server: VlessServer): String {
+        val streamSettings = buildStreamSettingsFromServer(server)
+
+        val user = JSONObject().apply {
+            put("id", server.uuid)
+            put("encryption", "none")
+            if (server.flow.isNotBlank()) {
+                put("flow", server.flow)
+            }
+        }
+
+        val outbound = JSONObject().apply {
+            put("protocol", "vless")
+            put("settings", JSONObject().apply {
+                put("vnext", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("address", server.host)
+                        put("port", server.port)
+                        put("users", JSONArray().apply { put(user) })
+                    })
+                })
+            })
+            put("streamSettings", streamSettings)
+            put("tag", "proxy")
+        }
+
+        return buildFullConfig(outbound)
+    }
+
+    /**
      * Generates an Xray JSON config for the given [VlessConfig].
      * The local SOCKS5 proxy will listen on 127.0.0.1:[SOCKS_PORT].
      */
@@ -72,44 +105,7 @@ class XrayHelper(context: Context) {
             put("tag", "proxy")
         }
 
-        val config = JSONObject().apply {
-            put("log", JSONObject().apply {
-                put("loglevel", "warning")
-            })
-            put("inbounds", JSONArray().apply {
-                put(buildSocksInbound())
-                put(buildHttpInbound())
-            })
-            put("outbounds", JSONArray().apply {
-                put(outbound)
-                put(JSONObject().apply {
-                    put("protocol", "freedom")
-                    put("tag", "direct")
-                })
-                put(JSONObject().apply {
-                    put("protocol", "blackhole")
-                    put("tag", "block")
-                })
-            })
-            put("routing", JSONObject().apply {
-                put("domainStrategy", "IPIfNonMatch")
-                put("rules", JSONArray().apply {
-                    // Route loopback/RFC-1918 ranges directly without geoip.dat
-                    put(JSONObject().apply {
-                        put("type", "field")
-                        put("outboundTag", "direct")
-                        put("ip", JSONArray().apply {
-                            put("127.0.0.0/8")
-                            put("10.0.0.0/8")
-                            put("172.16.0.0/12")
-                            put("192.168.0.0/16")
-                        })
-                    })
-                })
-            })
-        }
-
-        return config.toString(2)
+        return buildFullConfig(outbound)
     }
 
     /**
@@ -184,6 +180,87 @@ class XrayHelper(context: Context) {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    private fun buildFullConfig(outbound: JSONObject): String {
+        val config = JSONObject().apply {
+            put("log", JSONObject().apply {
+                put("loglevel", "warning")
+            })
+            put("inbounds", JSONArray().apply {
+                put(buildSocksInbound())
+                put(buildHttpInbound())
+            })
+            put("outbounds", JSONArray().apply {
+                put(outbound)
+                put(JSONObject().apply {
+                    put("protocol", "freedom")
+                    put("tag", "direct")
+                })
+                put(JSONObject().apply {
+                    put("protocol", "blackhole")
+                    put("tag", "block")
+                })
+            })
+            put("routing", JSONObject().apply {
+                put("domainStrategy", "IPIfNonMatch")
+                put("rules", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("type", "field")
+                        put("outboundTag", "direct")
+                        put("ip", JSONArray().apply {
+                            put("127.0.0.0/8")
+                            put("10.0.0.0/8")
+                            put("172.16.0.0/12")
+                            put("192.168.0.0/16")
+                        })
+                    })
+                })
+            })
+        }
+        return config.toString(2)
+    }
+
+    private fun buildStreamSettingsFromServer(server: VlessServer): JSONObject {
+        val network = server.type.lowercase()
+        val security = server.security.lowercase()
+
+        return JSONObject().apply {
+            put("network", network)
+            put("security", security)
+
+            when (network) {
+                "ws" -> put("wsSettings", JSONObject().apply {
+                    put("path", server.path)
+                    put("headers", JSONObject().apply {
+                        put("Host", server.wsHost)
+                    })
+                })
+                "grpc" -> put("grpcSettings", JSONObject().apply {
+                    put("serviceName", server.path.trimStart('/'))
+                })
+            }
+
+            when (security) {
+                "tls" -> put("tlsSettings", JSONObject().apply {
+                    put("serverName", server.sni.ifBlank { server.wsHost.ifBlank { server.host } })
+                    put("fingerprint", server.fp)
+                    put("allowInsecure", false)
+                    if (server.alpn.isNotBlank()) {
+                        put("alpn", JSONArray().apply {
+                            server.alpn.split(",").forEach { put(it.trim()) }
+                        })
+                    }
+                })
+                "reality" -> put("realitySettings", JSONObject().apply {
+                    put("show", false)
+                    put("fingerprint", server.fp)
+                    put("serverName", server.sni.ifBlank { server.host })
+                    put("publicKey", server.pbk)
+                    put("shortId", server.sid)
+                })
+            }
+        }
+    }
 
     private fun buildStreamSettings(cfg: VlessConfig): JSONObject = when (cfg.network.lowercase()) {
         "ws" -> JSONObject().apply {

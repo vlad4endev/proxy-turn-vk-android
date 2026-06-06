@@ -16,9 +16,10 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 import androidx.compose.runtime.Stable
+import com.wdtt.client.xray.SubscriptionParser
 import com.wdtt.client.xray.Tun2SocksHelper
+import com.wdtt.client.xray.VlessServer
 import com.wdtt.client.xray.XrayHelper
-import com.wdtt.client.xray.parseVlessUri
 
 enum class ConnectionStage {
     IDLE,
@@ -136,6 +137,7 @@ object TunnelManager {
     val connectionSnapshot = MutableStateFlow(TunnelConnectionSnapshot())
     val connectedSince = MutableStateFlow(0L)
     val tunnelMode = MutableStateFlow(TunnelMode.WHITELIST)
+    val activeSpeedServer = MutableStateFlow<VlessServer?>(null)
 
     val cooldownActive = MutableStateFlow(false)
     private var cooldownJob: Job? = null
@@ -286,19 +288,21 @@ object TunnelManager {
     }
 
     private suspend fun startSpeedMode(context: Context, params: TunnelParams) {
-        val vlessUri = ServerConfig.VLESS_URI
-        val vlessCfg = try {
-            parseVlessUri(vlessUri)
-        } catch (e: Exception) {
-            updateLog("vless_parse_error", "Ошибка: неверный VLESS URI — ${e.message}", 99, true)
+        maybeRefreshSubscriptionInBackground(context)
+
+        val server = resolveActiveVlessServer(context)
+        if (server == null) {
+            updateLog("vless_parse_error", "Ошибка: неверный VLESS URI", 99, true)
             connectionStage.value = ConnectionStage.FAILED
-            connectionHint.value = "Неверный VLESS URI в ServerConfig"
+            connectionHint.value = "Неверный VLESS URI — проверьте настройки серверов"
             running.value = false
             startInProgress = false
             return
         }
 
-        val endpoint = "${vlessCfg.serverHost}:${vlessCfg.serverPort}"
+        activeSpeedServer.value = server
+        val endpoint = "${server.host}:${server.port}"
+        val protocolLabel = buildSpeedProtocolLabel(server)
 
         connectionSnapshot.value = TunnelConnectionSnapshot(
             peer = endpoint,
@@ -306,13 +310,13 @@ object TunnelManager {
             hashMode = "Скоростной (Xray + TUN)",
             hashCount = 0,
             workers = 0,
-            captchaMode = "—",
-            captchaSolve = "—"
+            captchaMode = protocolLabel,
+            captchaSolve = server.name
         )
-        updateLog("path_start", "[ПУТЬ] Телефон → TUN → SOCKS5 → ${vlessCfg.serverHost}:${vlessCfg.serverPort} (VLESS/${vlessCfg.network.uppercase()})", 0)
-        updateLog("server_peer", "[СЕРВЕР] ${vlessCfg.serverHost}:${vlessCfg.serverPort} — ${vlessCfg.remark}", 1)
+        updateLog("path_start", "[ПУТЬ] Телефон → TUN → SOCKS5 → $endpoint (VLESS/${server.type.uppercase()})", 0)
+        updateLog("server_peer", "[СЕРВЕР] $endpoint — ${server.name}", 1)
         connectionStage.value = ConnectionStage.STARTING
-        connectionHint.value = "Запуск Xray (VLESS/${vlessCfg.network.uppercase()})…"
+        connectionHint.value = "Запуск Xray ($protocolLabel)…"
         running.value = true
         startInProgress = false
         transportRestartInProgress = false
@@ -320,7 +324,7 @@ object TunnelManager {
         // ── 1. Запускаем Xray (SOCKS5 на :10808) ─────────────────────────
         try {
             val helper = xrayHelper ?: XrayHelper(context).also { xrayHelper = it }
-            val configJson = helper.generateConfig(vlessCfg)
+            val configJson = helper.generateConfigFromServer(server)
             config.value = configJson
             helper.start(configJson)
             updateLog("xray_started", "[XRAY] SOCKS5 прокси запущен (:${helper.socksPort()})", 1, false)
@@ -370,6 +374,64 @@ object TunnelManager {
             connectionHint.value = "tun2socks не запустился"
             updateLog("tun_dead", "tun2socks завершился сразу после старта", 99, true)
         }
+    }
+
+    private fun getActiveVlessUri(context: Context): String {
+        val store = SettingsStore(context)
+        return when (store.getVlessInputMode()) {
+            "subscription" -> {
+                val servers = store.loadServers()
+                val index = store.getSelectedServerIndex()
+                    .coerceIn(0, (servers.size - 1).coerceAtLeast(0))
+                servers.getOrNull(index)?.uri ?: ServerConfig.VLESS_URI
+            }
+            "manual" -> store.getManualVlessUri().ifBlank { ServerConfig.VLESS_URI }
+            else -> ServerConfig.VLESS_URI
+        }
+    }
+
+    private fun resolveActiveVlessServer(context: Context): VlessServer? {
+        val uri = getActiveVlessUri(context)
+        return SubscriptionParser.parseVlessUri(uri)
+    }
+
+    private fun maybeRefreshSubscriptionInBackground(context: Context) {
+        val store = SettingsStore(context)
+        if (store.getVlessInputMode() != "subscription") return
+        val subUrl = store.getSubscriptionUrl()
+        if (subUrl.isBlank()) return
+        val lastUpdate = store.getLastSubUpdate()
+        val stale = lastUpdate == 0L ||
+            System.currentTimeMillis() - lastUpdate > 24 * 60 * 60 * 1000L
+        if (!stale) return
+
+        scope.launch {
+            try {
+                val servers = SubscriptionParser.fetchSubscription(subUrl)
+                if (servers.isNotEmpty()) {
+                    store.saveServers(servers)
+                    store.saveLastSubUpdate(System.currentTimeMillis())
+                    updateLog("sub_refresh", "[ПОДПИСКА] Обновлено ${servers.size} серверов", 3, false)
+                }
+            } catch (e: Exception) {
+                updateLog("sub_refresh_err", "[ПОДПИСКА] Ошибка обновления: ${e.message}", 99, false)
+            }
+        }
+    }
+
+    private fun buildSpeedProtocolLabel(server: VlessServer): String {
+        val parts = buildList {
+            add("VLESS")
+            if (server.type != "tcp") add(server.type.uppercase())
+            when (server.security) {
+                "tls" -> add("TLS")
+                "reality" -> add("Reality")
+            }
+            if (server.wsHost.isNotBlank() && server.wsHost != server.host) {
+                add(server.wsHost.substringBefore('.'))
+            }
+        }
+        return parts.joinToString(" · ")
     }
 
     private suspend fun startWhitelistMode(context: Context, params: TunnelParams, isSwitching: Boolean) {
@@ -838,16 +900,14 @@ object TunnelManager {
                     }
 
                     // Дополнительные триггеры: TURN/DTLS-сигналы из Go-бинаря
-                    run {
-                        val activeVal = Regex("""active=(\d+)""").find(lineTrim)
-                            ?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                        if (activeVal > 0 ||
-                            lineTrim.contains("Established DTLS", ignoreCase = true) ||
-                            lineTrim.contains("relay connected", ignoreCase = true) ||
-                            lineTrim.contains("TURN urls", ignoreCase = true)
-                        ) {
-                            launchWireGuardIfNeeded()
-                        }
+                    if (lineTrim.contains("Облачный релей подключён", ignoreCase = true) ||
+                        lineTrim.contains("relay connected", ignoreCase = true) ||
+                        lineTrim.contains("Established DTLS", ignoreCase = true) ||
+                        lineTrim.contains("active=", ignoreCase = true) ||
+                        lineTrim.contains("TURN urls", ignoreCase = true) ||
+                        lineTrim.contains("turn:", ignoreCase = true)
+                    ) {
+                        launchWireGuardIfNeeded()
                     }
 
                     if (line.contains("╔") && line.contains("WireGuard")) {
@@ -889,6 +949,7 @@ object TunnelManager {
     }
 
     private fun launchWireGuardIfNeeded() {
+        android.util.Log.d("TunnelManager", "launchWireGuardIfNeeded called, wireGuardStarted=$wireGuardStarted, running=${running.value}")
         if (wireGuardStarted || !running.value) return
         wireGuardStarted = true
         val configStr = WireGuardHelper.ensureWireGuardMtu(ServerConfig.WG_CONFIG.trim())
@@ -1125,6 +1186,7 @@ object TunnelManager {
         connectionStage.value = ConnectionStage.IDLE
         connectionHint.value = ""
         connectionSnapshot.value = TunnelConnectionSnapshot()
+        activeSpeedServer.value = null
         tunnelMode.value = TunnelMode.WHITELIST
         currentParams = null
         currentLinkProvider = LinkProvider.UNKNOWN
