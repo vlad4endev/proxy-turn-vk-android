@@ -35,10 +35,27 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("../skyflow-release.keystore")
-            storePassword = "skyflow2026"
-            keyAlias = "skyflow"
-            keyPassword = "skyflow2026"
+            val ciKeystore = rootProject.file("release.keystore")
+            val localKeystore = rootProject.file("skyflow-release.keystore")
+            val storePasswordEnv = System.getenv("KEYSTORE_PASSWORD")
+            val keyAliasEnv = System.getenv("KEY_ALIAS")
+            val keyPasswordEnv = System.getenv("KEY_PASSWORD")
+
+            when {
+                ciKeystore.isFile && !storePasswordEnv.isNullOrBlank() && !keyAliasEnv.isNullOrBlank() -> {
+                    storeFile = ciKeystore
+                    storeType = "PKCS12"
+                    storePassword = storePasswordEnv
+                    keyAlias = keyAliasEnv
+                    keyPassword = keyPasswordEnv ?: storePasswordEnv
+                }
+                localKeystore.isFile -> {
+                    storeFile = localKeystore
+                    storePassword = storePasswordEnv ?: "skyflow2026"
+                    keyAlias = keyAliasEnv ?: "skyflow"
+                    keyPassword = keyPasswordEnv ?: storePassword ?: "skyflow2026"
+                }
+            }
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
@@ -53,7 +70,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            signingConfigs.getByName("release").takeIf { it.storeFile?.isFile == true }?.let {
+                signingConfig = it
+            }
         }
     }
 
