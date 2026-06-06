@@ -82,8 +82,18 @@ jobs:
             local goarch="$2"
             local out="$3"
             echo "== Build client ${goos}/${goarch} =="
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -trimpath -ldflags="-s -w -checklinkname=0" -o "../${out}" .
+            if [[ "$goarch" == "arm" ]]; then
+              local cc="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi${ANDROID_MIN_API}-clang"
+              if [[ ! -x "$cc" ]]; then
+                echo "NDK clang not found: $cc"
+                exit 1
+              fi
+              CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" CC="$cc" \
+                go build -trimpath -ldflags="-s -w -checklinkname=0" -o "../${out}" .
+            else
+              CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+                go build -trimpath -ldflags="-s -w -checklinkname=0" -o "../${out}" .
+            fi
             chmod +x "../${out}"
           }
 
