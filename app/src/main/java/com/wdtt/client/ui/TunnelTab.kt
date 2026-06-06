@@ -424,7 +424,13 @@ fun TunnelTab() {
             Spacer(Modifier.height(if (metrics.isCompactHeight) 4.dp else 12.dp))
         }
 
-        TunnelModeBadge(isSpeedMode = isSpeedMode)
+        TunnelModeSwitch(
+            selectedMode = savedTunnelMode,
+            enabled = !tunnelRunning && !isStarting,
+            onModeChange = { mode ->
+                scope.launch { store.saveTunnelMode(mode) }
+            }
+        )
 
         Box(contentAlignment = Alignment.Center) {
             val glowBrush = when {
@@ -1132,39 +1138,113 @@ fun TunnelTab() {
 }
 
 @Composable
-private fun TunnelModeBadge(isSpeedMode: Boolean) {
-    val bg = if (isSpeedMode) SkyflowColors.Connected.copy(alpha = 0.15f)
-    else SkyflowColors.Accent.copy(alpha = 0.15f)
-    val border = if (isSpeedMode) SkyflowColors.Connected.copy(alpha = 0.35f)
-    else SkyflowColors.Accent.copy(alpha = 0.35f)
-    val color = if (isSpeedMode) SkyflowColors.Connected else SkyflowColors.AccentLight
-    val label = if (isSpeedMode) "⚡ СКОРОСТНОЙ" else "☁ БЕЛЫЙ СПИСОК"
-    val subtitle = if (isSpeedMode) "WireGuard → VPS напрямую" else "VK/TURN → WireGuard"
+private fun TunnelModeSwitch(
+    selectedMode: String,
+    enabled: Boolean,
+    onModeChange: (String) -> Unit,
+) {
+    val isSpeed = selectedMode == "speed"
 
     Surface(
-        shape = SkyflowShapes.Chip,
-        color = bg,
-        border = BorderStroke(0.5.dp, border)
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.5f),
+        shape = SkyflowShapes.Card,
+        color = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column {
-                Text(
-                    label,
-                    fontSize = readableSp(11f),
-                    fontWeight = FontWeight.Bold,
-                    color = color,
-                    letterSpacing = 0.6.sp
+            Text(
+                "РЕЖИМ ПОДКЛЮЧЕНИЯ",
+                style = SkyflowTextStyles.labelUppercase,
+                color = SkyflowColors.TextMuted
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TunnelModeOption(
+                    label = "☁ Белый список",
+                    subtitle = "VK/TURN → WG",
+                    selected = !isSpeed,
+                    enabled = enabled,
+                    accentColor = SkyflowColors.AccentLight,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChange("whitelist") }
                 )
-                Text(
-                    subtitle,
-                    fontSize = readableSp(10f),
-                    color = SkyflowColors.TextMuted
+                TunnelModeOption(
+                    label = "⚡ Скоростной",
+                    subtitle = "WG → VPS",
+                    selected = isSpeed,
+                    enabled = enabled,
+                    accentColor = SkyflowColors.Connected,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChange("speed") }
                 )
             }
+            if (!enabled) {
+                Text(
+                    "Смена режима доступна после отключения",
+                    fontSize = readableSp(10f),
+                    color = SkyflowColors.TextMuted,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TunnelModeOption(
+    label: String,
+    subtitle: String,
+    selected: Boolean,
+    enabled: Boolean,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val bg by animateColorAsState(
+        if (selected) accentColor.copy(alpha = 0.18f) else SkyflowColors.GlassSurfaceElevated,
+        label = "mode_opt_bg"
+    )
+    val borderColor by animateColorAsState(
+        if (selected) accentColor.copy(alpha = 0.55f) else SkyflowColors.Border,
+        label = "mode_opt_border"
+    )
+    Surface(
+        modifier = modifier,
+        shape = SkyflowShapes.Chip,
+        color = bg,
+        border = BorderStroke(if (selected) 1.dp else 0.5.dp, borderColor),
+        onClick = { if (enabled) onClick() },
+        enabled = enabled,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                label,
+                fontSize = readableSp(11f),
+                fontWeight = FontWeight.Bold,
+                color = if (selected) accentColor else SkyflowColors.TextSecondary,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                fontSize = readableSp(9f),
+                color = SkyflowColors.TextMuted,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
         }
     }
 }
