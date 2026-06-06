@@ -58,17 +58,19 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import com.wdtt.client.ui.AppUpdateDialog
+import com.wdtt.client.ui.ExceptionsTab
 import com.wdtt.client.ui.FloatingToolbar
+import com.wdtt.client.ui.InfoTab
 import com.wdtt.client.ui.LogsTab
 import com.wdtt.client.ui.OnboardingScreen
+import com.wdtt.client.ui.SkyflowColors
 import com.wdtt.client.ui.TunnelTab
-import com.wdtt.client.ui.ExceptionsTab
-import com.wdtt.client.ui.InfoTab
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
@@ -459,24 +461,11 @@ private fun ProxyNavigationBar(
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
-    val isDark = colors.background.luminance() < 0.22f
-    val selectedColor = colors.primary
-    val unselectedColor = colors.onSurfaceVariant.copy(alpha = 0.55f)
-    val shellColor = if (isDark) {
-        colors.surface.copy(alpha = 0.78f)
-    } else {
-        lerp(colors.surface, colors.surfaceVariant, 0.48f).copy(alpha = 0.95f)
-    }
-    val shellBorder = if (isDark) {
-        colors.outlineVariant.copy(alpha = 0.42f)
-    } else {
-        colors.outline.copy(alpha = 0.16f)
-    }
-    val indicatorColor = if (isDark) {
-        colors.primaryContainer.copy(alpha = 0.84f)
-    } else {
-        lerp(colors.primaryContainer, colors.surface, 0.18f).copy(alpha = 0.97f)
-    }
+    val selectedColor = SkyflowColors.Accent
+    val unselectedColor = SkyflowColors.TextMuted
+    val shellColor = SkyflowColors.NavBg
+    val shellBorder = SkyflowColors.Border
+    val indicatorColor = SkyflowColors.Accent.copy(alpha = 0.18f)
     val selectedVisualIndex = remember(selectedTab, navItems) {
         navItems.indexOfFirst { it.id == selectedTab }.coerceAtLeast(0)
     }
@@ -515,9 +504,9 @@ private fun ProxyNavigationBar(
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = shellColor,
-            border = BorderStroke(1.dp, shellBorder),
+            border = BorderStroke(0.5.dp, shellBorder),
             tonalElevation = 0.dp,
-            shadowElevation = if (isDark) 10.dp else 8.dp,
+            shadowElevation = 0.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Box(
@@ -573,7 +562,7 @@ private fun ProxyNavigationBar(
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 text = item.label,
-                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
                                 fontWeight = if (emphasis > 0.55f) FontWeight.SemiBold else FontWeight.Medium,
                                 color = iconColor,
                                 maxLines = 1

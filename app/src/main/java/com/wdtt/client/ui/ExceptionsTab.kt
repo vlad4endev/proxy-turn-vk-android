@@ -1,7 +1,6 @@
 package com.wdtt.client.ui
 
 import android.content.pm.PackageManager
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -120,16 +118,20 @@ fun ExceptionsTab() {
 
     val excludedCount = selectedPackages.size
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SkyflowColors.Background)
+    ) {
 
         Spacer(Modifier.height(8.dp))
 
         // Mode block
         Surface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            shape = RoundedCornerShape(10.dp),
-            color = Color(0xFF13112A),
-            border = BorderStroke(0.5.dp, Color(0xFF1E1C3A))
+            shape = SkyflowShapes.Card,
+            color = SkyflowColors.Surface,
+            border = SkyflowBorders.Default
         ) {
             Column(Modifier.padding(10.dp)) {
 
@@ -142,14 +144,14 @@ fun ExceptionsTab() {
                         "Режим исключений",
                         fontSize = 9.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFD4D4D8)
+                        color = SkyflowColors.TextPrimary
                     )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                         val isBlacklistActive = !isWhitelist
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isBlacklistActive) Color(0xFF6366F1) else Color(0xFF1E1C3A),
+                            shape = SkyflowShapes.ModeButton,
+                            color = if (isBlacklistActive) SkyflowColors.Accent else SkyflowColors.Border,
                             modifier = Modifier.clickable {
                                 if (isWhitelist) {
                                     scope.launch {
@@ -164,17 +166,17 @@ fun ExceptionsTab() {
                         ) {
                             Text(
                                 "Чёрный список",
-                                fontSize = 7.5.sp,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isBlacklistActive) Color.White else Color(0xFF6B7280),
+                                color = if (isBlacklistActive) SkyflowColors.OnAccent else SkyflowColors.TextSecondary,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                             )
                         }
 
                         val isWhitelistActive = isWhitelist
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isWhitelistActive) Color(0xFF6366F1) else Color(0xFF1E1C3A),
+                            shape = SkyflowShapes.ModeButton,
+                            color = if (isWhitelistActive) SkyflowColors.Accent else SkyflowColors.Border,
                             modifier = Modifier.clickable {
                                 if (!isWhitelist) {
                                     scope.launch {
@@ -189,9 +191,9 @@ fun ExceptionsTab() {
                         ) {
                             Text(
                                 "Белый список",
-                                fontSize = 7.5.sp,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isWhitelistActive) Color.White else Color(0xFF6B7280),
+                                color = if (isWhitelistActive) SkyflowColors.OnAccent else SkyflowColors.TextSecondary,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                             )
                         }
@@ -203,13 +205,13 @@ fun ExceptionsTab() {
                     text = if (!isWhitelist) "Выбранные приложения не используют VPN-туннель"
                            else "Только выбранные приложения используют VPN-туннель",
                     fontSize = 7.5.sp,
-                    color = Color(0xFF6B7280),
+                    color = SkyflowColors.TextSecondary,
                     lineHeight = 11.sp
                 )
 
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 6.dp),
-                    color = Color(0xFF1E1C3A),
+                    color = SkyflowColors.Border,
                     thickness = 0.5.dp
                 )
 
@@ -221,7 +223,7 @@ fun ExceptionsTab() {
                     Text(
                         "Системные приложения",
                         fontSize = 9.sp,
-                        color = Color(0xFFD4D4D8)
+                        color = SkyflowColors.TextPrimary
                     )
                     Switch(
                         checked = showSystemAppsOpt ?: true,
@@ -240,9 +242,9 @@ fun ExceptionsTab() {
         // Search
         Surface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            shape = RoundedCornerShape(8.dp),
-            color = Color(0xFF13112A),
-            border = BorderStroke(0.5.dp, Color(0xFF1E1C3A))
+            shape = SkyflowShapes.SearchField,
+            color = SkyflowColors.Surface,
+            border = SkyflowBorders.Default
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -252,21 +254,21 @@ fun ExceptionsTab() {
                 Icon(
                     Icons.Default.Search,
                     contentDescription = null,
-                    tint = Color(0xFF6B7280),
+                    tint = SkyflowColors.TextSecondary,
                     modifier = Modifier.size(11.dp)
                 )
                 Box(Modifier.fillMaxWidth()) {
                     if (searchQuery.isEmpty()) {
                         Text(
                             "Поиск приложений...",
-                            fontSize = 9.sp,
-                            color = Color(0xFF6B7280)
+                            fontSize = 10.sp,
+                            color = SkyflowColors.TextSecondary
                         )
                     }
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        textStyle = TextStyle(fontSize = 9.sp, color = Color(0xFFD4D4D8)),
+                        textStyle = TextStyle(fontSize = 9.sp, color = SkyflowColors.TextPrimary),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -286,13 +288,13 @@ fun ExceptionsTab() {
             Text(
                 "ПРИЛОЖЕНИЯ",
                 fontSize = 8.sp,
-                color = Color(0xFF6B7280),
+                color = SkyflowColors.TextSecondary,
                 letterSpacing = 0.6.sp
             )
             Text(
                 "$excludedCount исключено",
                 fontSize = 8.sp,
-                color = Color(0xFF6366F1),
+                color = SkyflowColors.Accent,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -338,9 +340,9 @@ fun ExceptionsTab() {
 fun AppRow(app: AppItem, isSelected: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF13112A),
-        border = BorderStroke(0.5.dp, Color(0xFF1E1C3A))
+        shape = SkyflowShapes.AppCard,
+        color = SkyflowColors.Surface,
+        border = SkyflowBorders.Default
     ) {
         Row(
             modifier = Modifier
@@ -354,30 +356,30 @@ fun AppRow(app: AppItem, isSelected: Boolean, onClick: () -> Unit) {
                     bitmap = app.icon,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(24.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .size(26.dp)
+                        .clip(SkyflowShapes.Tag)
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
-                        .background(Color(0xFF2D2B52), RoundedCornerShape(6.dp))
+                        .size(26.dp)
+                        .background(SkyflowColors.NodeIdle, SkyflowShapes.Tag)
                 )
             }
 
             Column(Modifier.weight(1f)) {
                 Text(
                     text = app.name,
-                    fontSize = 8.5.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFFD4D4D8),
+                    color = SkyflowColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = app.packageName,
-                    fontSize = 6.5.sp,
-                    color = Color(0xFF6B7280),
+                    fontSize = 7.sp,
+                    color = SkyflowColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -386,12 +388,12 @@ fun AppRow(app: AppItem, isSelected: Boolean, onClick: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(14.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(if (isSelected) Color(0xFF6366F1) else Color.Transparent)
+                    .clip(SkyflowShapes.Checkbox)
+                    .background(if (isSelected) SkyflowColors.Accent else Color.Transparent)
                     .border(
                         width = 1.5.dp,
-                        color = if (isSelected) Color(0xFF6366F1) else Color(0xFF2D2B52),
-                        shape = RoundedCornerShape(4.dp)
+                        color = if (isSelected) SkyflowColors.Accent else SkyflowColors.CheckboxBorder,
+                        shape = SkyflowShapes.Checkbox
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -399,7 +401,7 @@ fun AppRow(app: AppItem, isSelected: Boolean, onClick: () -> Unit) {
                     Icon(
                         Icons.Default.Check,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = SkyflowColors.OnAccent,
                         modifier = Modifier.size(9.dp)
                     )
                 }

@@ -5,10 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,7 +39,6 @@ import com.wdtt.client.LogEntry
 import com.wdtt.client.ServerConfig
 import com.wdtt.client.TunnelConnectionSnapshot
 import com.wdtt.client.TunnelManager
-import com.wdtt.client.WDTTColors
 import com.wdtt.client.SettingsStore
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -105,7 +102,12 @@ fun LogsTab() {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SkyflowColors.Background)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -147,14 +149,11 @@ fun LogsTab() {
 
         Spacer(Modifier.height(8.dp))
 
-        val isDark = isSystemInDarkTheme()
-        val terminalBg = if (isDark) WDTTColors.terminalBgDark else WDTTColors.terminalBg
-
         Card(
             modifier = Modifier.fillMaxSize(),
-            colors = CardDefaults.cardColors(containerColor = terminalBg),
+            colors = CardDefaults.cardColors(containerColor = SkyflowColors.Background),
             shape = RoundedCornerShape(20.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             if (filteredLogs.isEmpty()) {
                 Box(
@@ -167,7 +166,7 @@ fun LogsTab() {
                         } else {
                             "Логирование выключено."
                         },
-                        color = WDTTColors.terminalText.copy(alpha = 0.6f),
+                        color = SkyflowColors.TextSecondary,
                         fontSize = 13.sp,
                         lineHeight = 18.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -209,9 +208,9 @@ private fun ConnectionPathCard(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xFF13112A),
-        border = BorderStroke(0.5.dp, Color(0xFF1E1C3A))
+        shape = SkyflowShapes.Card,
+        color = SkyflowColors.Surface,
+        border = SkyflowBorders.Default
     ) {
         Column(Modifier.padding(10.dp)) {
             Row(
@@ -220,10 +219,10 @@ private fun ConnectionPathCard(
             ) {
                 nodes.forEachIndexed { i, nodeUi ->
                     val dotColor = when (nodeUi.state) {
-                        NodeState.DONE -> Color(0xFF4ADE80)
-                        NodeState.ACTIVE -> Color(0xFF818CF8)
-                        NodeState.ERROR -> Color(0xFFF87171)
-                        NodeState.IDLE -> Color(0xFF2D2B52)
+                        NodeState.DONE -> SkyflowColors.Connected
+                        NodeState.ACTIVE -> SkyflowColors.AccentLight
+                        NodeState.ERROR -> SkyflowColors.ErrorColor
+                        NodeState.IDLE -> SkyflowColors.NodeIdle
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
@@ -233,13 +232,13 @@ private fun ConnectionPathCard(
                                 .background(dotColor)
                         )
                         Spacer(Modifier.height(2.dp))
-                        Text(nodeUi.node.short, fontSize = 6.sp, color = Color(0xFF6B7280))
+                        Text(nodeUi.node.short, fontSize = 6.sp, color = SkyflowColors.TextSecondary)
                     }
                     if (i < nodes.size - 1) {
                         Text(
                             "→",
                             fontSize = 8.sp,
-                            color = Color(0xFF2D2B52),
+                            color = SkyflowColors.NodeIdle,
                             modifier = Modifier
                                 .padding(horizontal = 4.dp)
                                 .padding(bottom = 8.dp)
@@ -249,7 +248,7 @@ private fun ConnectionPathCard(
             }
 
             Spacer(Modifier.height(6.dp))
-            HorizontalDivider(color = Color(0xFF1E1C3A), thickness = 0.5.dp)
+            HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
             Spacer(Modifier.height(6.dp))
 
             Row(
@@ -257,14 +256,14 @@ private fun ConnectionPathCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 LogMetaItem("Этап", stageLabel, stageColor(stage, running))
-                LogMetaItem("Потоки", snapshot.workers.toString(), Color(0xFFA5B4FC))
-                LogMetaItem("Воркеры", workers.toString(), Color(0xFFA5B4FC))
-                LogMetaItem("Капча", captchaText, Color(0xFF6B7280))
+                LogMetaItem("Потоки", snapshot.workers.toString(), SkyflowColors.TextAccent)
+                LogMetaItem("Воркеры", workers.toString(), SkyflowColors.TextAccent)
+                LogMetaItem("Капча", captchaText, SkyflowColors.TextSecondary)
             }
 
             if (hint.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
-                Text(hint, fontSize = 8.sp, color = Color(0xFFF87171), lineHeight = 12.sp)
+                Text(hint, fontSize = 8.sp, color = SkyflowColors.ErrorColor, lineHeight = 12.sp)
             }
         }
     }
@@ -276,7 +275,7 @@ private fun LogMetaItem(key: String, value: String, valueColor: Color) {
         Text(
             key.uppercase(),
             fontSize = 6.sp,
-            color = Color(0xFF6B7280),
+            color = SkyflowColors.TextSecondary,
             letterSpacing = 0.6.sp
         )
         Text(value, fontSize = 7.sp, color = valueColor)
@@ -297,19 +296,18 @@ private fun LogFilterRow(selected: LogFilter, onSelect: (LogFilter) -> Unit) {
             val isSelected = selected == filter
             Surface(
                 onClick = { onSelect(filter) },
-                shape = RoundedCornerShape(10.dp),
-                color = if (isSelected) Color(0xFF6366F1) else Color(0xFF13112A),
-                border = if (isSelected) null else BorderStroke(0.5.dp, Color(0xFF2A2850)),
-                modifier = Modifier.height(24.dp)
+                shape = SkyflowShapes.Chip,
+                color = if (isSelected) SkyflowColors.Accent else SkyflowColors.Surface,
+                border = if (isSelected) null else SkyflowBorders.Accent
             ) {
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.padding(horizontal = 10.dp)
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
                         filter.label,
                         fontSize = 8.sp,
-                        color = if (isSelected) Color.White else Color(0xFF6B7280)
+                        color = if (isSelected) SkyflowColors.OnAccent else SkyflowColors.TextSecondary
                     )
                 }
             }
@@ -325,26 +323,17 @@ fun LogLine(entry: LogEntry) {
     val isOk = !isError && !isWarn && entry.priority <= 2
     val isVk = !isError && !isWarn && !isOk && entry.category == LogCategory.VK
 
-    val bgColor = when {
-        isError -> Color(0xFF1A0F0F)
-        isWarn -> Color(0xFF1A150A)
-        isOk -> Color(0xFF0A1A0F)
-        isVk -> Color(0xFF0F0F20)
-        else -> Color(0xFF0F0D1F)
-    }
     val accentColor = when {
-        isError -> Color(0xFFF87171)
-        isWarn -> Color(0xFFF59E0B)
-        isOk -> Color(0xFF4ADE80)
-        isVk -> Color(0xFFA5B4FC)
-        else -> Color(0xFF6366F1)
-    }
-    val textColor = when {
-        isError -> Color(0xFFFCA5A5)
-        isWarn -> Color(0xFFFCD34D)
-        isOk -> Color(0xFF86EFAC)
-        isVk -> Color(0xFFD4D4D8)
-        else -> Color(0xFFD4D4D8)
+        isError || entry.category == LogCategory.ERROR -> SkyflowColors.ErrorColor
+        isOk -> SkyflowColors.Connected
+        entry.category == LogCategory.SYSTEM -> SkyflowColors.Accent
+        entry.category == LogCategory.SERVER || entry.category == LogCategory.WRAP -> SkyflowColors.AccentLight
+        entry.category == LogCategory.VK -> SkyflowColors.VkStripe
+        entry.category == LogCategory.CAPTCHA -> SkyflowColors.WarnColor
+        entry.category == LogCategory.TURN -> SkyflowColors.RelayStripe
+        isWarn -> SkyflowColors.WarnColor
+        isVk -> SkyflowColors.VkStripe
+        else -> SkyflowColors.Accent
     }
 
     val tagColor = categoryColor(entry.category)
@@ -364,15 +353,20 @@ fun LogLine(entry: LogEntry) {
     )
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = bgColor
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                drawRect(
+                    color = accentColor,
+                    size = Size(3.dp.toPx(), size.height)
+                )
+            },
+        shape = SkyflowShapes.LogEntry,
+        color = SkyflowColors.Surface,
+        border = SkyflowBorders.Default
     ) {
         Row(
             modifier = Modifier
-                .drawBehind {
-                    drawRect(accentColor, size = Size(2.dp.toPx(), size.height))
-                }
                 .padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.Top
@@ -380,21 +374,21 @@ fun LogLine(entry: LogEntry) {
             Column(modifier = Modifier.width(32.dp)) {
                 Text(
                     timeStr,
-                    fontSize = 6.sp,
-                    color = Color(0xFF6B7280),
+                    fontSize = 8.sp,
+                    color = SkyflowColors.TextSecondary,
                     fontFamily = FontFamily.Monospace
                 )
                 Spacer(Modifier.height(2.dp))
                 Surface(
-                    shape = RoundedCornerShape(3.dp),
+                    shape = SkyflowShapes.LogTag,
                     color = tagColor.copy(alpha = 0.15f)
                 ) {
                     Text(
                         tag,
-                        fontSize = 6.sp,
+                        fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
                         color = tagColor,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                     )
                 }
             }
@@ -406,15 +400,15 @@ fun LogLine(entry: LogEntry) {
             ) {
                 Text(
                     text = displayMessage,
-                    fontSize = 8.sp,
-                    lineHeight = 12.sp,
-                    color = textColor,
+                    fontSize = 9.sp,
+                    lineHeight = 13.sp,
+                    color = SkyflowColors.TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
                 if (entry.count > 1) {
                     Surface(
-                        color = Color(0xFF1E1C3A),
-                        shape = RoundedCornerShape(12.dp),
+                        color = SkyflowColors.Border,
+                        shape = SkyflowShapes.VersionBadge,
                         modifier = Modifier
                             .defaultMinSize(minWidth = 18.dp, minHeight = 14.dp)
                             .graphicsLayer(scaleX = animatedScale, scaleY = animatedScale)
@@ -425,7 +419,7 @@ fun LogLine(entry: LogEntry) {
                         ) {
                             Text(
                                 text = "×${entry.count}",
-                                color = Color(0xFFA5B4FC),
+                                color = SkyflowColors.TextAccent,
                                 fontSize = 7.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -503,10 +497,10 @@ private fun stageLabel(stage: ConnectionStage, running: Boolean): String = when 
 }
 
 private fun stageColor(stage: ConnectionStage, running: Boolean): Color = when {
-    stage == ConnectionStage.VPN_READY -> WDTTColors.terminalGreen
-    stage == ConnectionStage.FAILED -> WDTTColors.terminalRed
-    running -> WDTTColors.terminalBlue
-    else -> Color(0xFF71717A)
+    stage == ConnectionStage.VPN_READY -> SkyflowColors.Connected
+    stage == ConnectionStage.FAILED -> SkyflowColors.ErrorColor
+    running -> SkyflowColors.Accent
+    else -> SkyflowColors.TextSecondary
 }
 
 @Composable
@@ -515,19 +509,19 @@ private fun nodeColors(state: NodeState): Triple<Color, Color, Color> {
     val idleFg = MaterialTheme.colorScheme.onSurfaceVariant
     return when (state) {
         NodeState.DONE -> Triple(
-            WDTTColors.terminalGreen.copy(alpha = 0.15f),
-            WDTTColors.terminalGreen,
-            WDTTColors.terminalGreen.copy(alpha = 0.4f)
+            SkyflowColors.Connected.copy(alpha = 0.15f),
+            SkyflowColors.Connected,
+            SkyflowColors.Connected.copy(alpha = 0.4f)
         )
         NodeState.ACTIVE -> Triple(
-            WDTTColors.terminalBlue.copy(alpha = 0.18f),
-            WDTTColors.terminalBlue,
-            WDTTColors.terminalBlue.copy(alpha = 0.5f)
+            SkyflowColors.Accent.copy(alpha = 0.18f),
+            SkyflowColors.Accent,
+            SkyflowColors.Accent.copy(alpha = 0.5f)
         )
         NodeState.ERROR -> Triple(
-            WDTTColors.terminalRed.copy(alpha = 0.15f),
-            WDTTColors.terminalRed,
-            WDTTColors.terminalRed.copy(alpha = 0.45f)
+            SkyflowColors.ErrorColor.copy(alpha = 0.15f),
+            SkyflowColors.ErrorColor,
+            SkyflowColors.ErrorColor.copy(alpha = 0.45f)
         )
         NodeState.IDLE -> Triple(idle, idleFg, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
     }
@@ -548,17 +542,17 @@ private fun categoryShort(category: LogCategory): String = when (category) {
 }
 
 private fun categoryColor(category: LogCategory): Color = when (category) {
-    LogCategory.VK -> Color(0xFF818CF8)
-    LogCategory.CAPTCHA -> Color(0xFFF472B6)
-    LogCategory.TURN -> Color(0xFF38BDF8)
-    LogCategory.WRAP -> Color(0xFFFB923C)
-    LogCategory.SERVER -> Color(0xFF4ADE80)
-    LogCategory.VPN -> Color(0xFF34D399)
-    LogCategory.STATS -> WDTTColors.terminalBlue
-    LogCategory.NETWORK -> Color(0xFFA78BFA)
-    LogCategory.DEPLOY -> Color(0xFF94A3B8)
-    LogCategory.ERROR -> WDTTColors.terminalRed
-    LogCategory.SYSTEM -> WDTTColors.terminalText
+    LogCategory.VK -> SkyflowColors.VkStripe
+    LogCategory.CAPTCHA -> SkyflowColors.WarnColor
+    LogCategory.TURN -> SkyflowColors.RelayStripe
+    LogCategory.WRAP -> SkyflowColors.AccentLight
+    LogCategory.SERVER -> SkyflowColors.AccentLight
+    LogCategory.VPN -> SkyflowColors.RelayStripe
+    LogCategory.STATS -> SkyflowColors.Accent
+    LogCategory.NETWORK -> SkyflowColors.AccentLight
+    LogCategory.DEPLOY -> SkyflowColors.TextSecondary
+    LogCategory.ERROR -> SkyflowColors.ErrorColor
+    LogCategory.SYSTEM -> SkyflowColors.Accent
 }
 
 private fun stripCategoryPrefix(message: String): String {

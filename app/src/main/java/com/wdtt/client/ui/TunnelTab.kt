@@ -52,9 +52,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,10 +75,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.graphicsLayer
-
-private val ColorIdle = Color(0xFF3D3B6A)
-private val ColorConnecting = Color(0xFFF59E0B)
-private val ColorConnected = Color(0xFF4ADE80)
 
 private val Peer = "${ServerConfig.HOST}:${ServerConfig.PORT}"
 
@@ -134,11 +134,11 @@ fun TunnelTab() {
     var servicesExpanded by remember { mutableStateOf(false) }
     var services by remember {
         mutableStateOf(listOf(
-            ServiceStatus("YouTube",   "▶", Color(0xFF1A0F0F), "youtube.com"),
-            ServiceStatus("Telegram",  "✈", Color(0xFF0F1A2A), "t.me"),
-            ServiceStatus("Instagram", "📷", Color(0xFF1A0F1A), "instagram.com"),
-            ServiceStatus("WhatsApp",  "💬", Color(0xFF0A1A0F), "whatsapp.com"),
-            ServiceStatus("TikTok",    "🎵", Color(0xFF0F0F1A), "tiktok.com"),
+            ServiceStatus("YouTube",   "▶", SkyflowColors.SurfaceHigh, "youtube.com"),
+            ServiceStatus("Telegram",  "✈", SkyflowColors.SurfaceHigh, "t.me"),
+            ServiceStatus("Instagram", "📷", SkyflowColors.SurfaceHigh, "instagram.com"),
+            ServiceStatus("WhatsApp",  "💬", SkyflowColors.SurfaceHigh, "whatsapp.com"),
+            ServiceStatus("TikTok",    "🎵", SkyflowColors.SurfaceHigh, "tiktok.com"),
         ))
     }
     var linkProvider by remember { mutableStateOf(LinkProvider.UNKNOWN) }
@@ -221,16 +221,16 @@ fun TunnelTab() {
     }
 
     val timerColor = when {
-        linkRemainingSeconds <= 0 -> Color(0xFFF87171)
-        linkRemainingSeconds <= 3600 -> Color(0xFFF59E0B)
-        linkRemainingSeconds <= 6 * 3600 -> Color(0xFFD4D4D8)
-        else -> Color(0xFF4ADE80)
+        linkRemainingSeconds <= 0 -> SkyflowColors.ErrorColor
+        linkRemainingSeconds <= 3600 -> SkyflowColors.WarnColor
+        linkRemainingSeconds <= 6 * 3600 -> SkyflowColors.TextPrimary
+        else -> SkyflowColors.Connected
     }
     val timerBarColor = when {
-        linkRemainingSeconds <= 0 -> Color(0xFFF87171)
-        linkRemainingSeconds <= 3600 -> Color(0xFFF59E0B)
-        linkRemainingSeconds <= 6 * 3600 -> Color(0xFF6366F1)
-        else -> Color(0xFF4ADE80)
+        linkRemainingSeconds <= 0 -> SkyflowColors.ErrorColor
+        linkRemainingSeconds <= 3600 -> SkyflowColors.WarnColor
+        linkRemainingSeconds <= 6 * 3600 -> SkyflowColors.Accent
+        else -> SkyflowColors.Connected
     }
     val timerPct = if (LINK_LIFETIME_SEC > 0)
         (linkRemainingSeconds.toFloat() / LINK_LIFETIME_SEC).coerceIn(0f, 1f)
@@ -245,12 +245,6 @@ fun TunnelTab() {
         linkRemainingSeconds <= 3600 -> "⚠"
         else -> "⏱"
     }
-    val autoBtnBorderColor = when {
-        linkRemainingSeconds <= 0 && vkLink.isNotBlank() -> Color(0xFF7F1D1D)
-        linkRemainingSeconds <= 3600 && vkLink.isNotBlank() -> Color(0xFF78350F)
-        vkLink.isNotBlank() -> Color(0xFF166534)
-        else -> Color(0xFF2A2850)
-    }
     val autoBtnText = when {
         isCreatingLink -> "Создание..."
         linkRemainingSeconds <= 0 && vkLink.isNotBlank() -> "Ссылка истекла · создать новую"
@@ -259,11 +253,11 @@ fun TunnelTab() {
         else -> "⚡ Создать автоматически"
     }
     val autoBtnTextColor = when {
-        isCreatingLink -> Color(0xFF6366F1)
-        linkRemainingSeconds <= 0 && vkLink.isNotBlank() -> Color(0xFFF87171)
-        linkRemainingSeconds in 1..3600 && vkLink.isNotBlank() -> Color(0xFFF59E0B)
-        vkLink.isNotBlank() -> Color(0xFF4ADE80)
-        else -> Color(0xFF818CF8)
+        isCreatingLink -> SkyflowColors.Accent
+        linkRemainingSeconds <= 0 && vkLink.isNotBlank() -> SkyflowColors.ErrorColor
+        linkRemainingSeconds in 1..3600 && vkLink.isNotBlank() -> SkyflowColors.WarnColor
+        vkLink.isNotBlank() -> SkyflowColors.Connected
+        else -> SkyflowColors.AccentLight
     }
 
     LaunchedEffect(vkLink) {
@@ -386,6 +380,7 @@ fun TunnelTab() {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(SkyflowColors.Background)
             .verticalScroll(scrollState)
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -413,30 +408,16 @@ fun TunnelTab() {
             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
-            val fieldBorderColor = when {
-                linkStatus == LinkStatus.ACTIVE -> Color(0xFF166534)
-                linkStatus == LinkStatus.DEAD -> Color(0xFF7F1D1D)
-                linkStatus == LinkStatus.CHECKING -> Color(0xFF4F46E5)
-                linkProvider == LinkProvider.VK -> Color(0xFF1E3A5F)
-                linkProvider == LinkProvider.YANDEX -> Color(0xFF78350F)
-                else -> Color(0xFF2A2850)
-            }
-            val fieldGlow = when (linkStatus) {
-                LinkStatus.CHECKING -> Color(0xFF6366F1).copy(alpha = 0.08f)
-                LinkStatus.ACTIVE -> Color(0xFF4ADE80).copy(alpha = 0.05f)
-                else -> Color.Transparent
-            }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .bringIntoViewRequester(linkFieldBringIntoView),
-                shape = RoundedCornerShape(14.dp),
-                color = Color(0xFF13112A),
-                border = BorderStroke(1.dp, fieldBorderColor)
+                shape = SkyflowShapes.Field,
+                color = SkyflowColors.Surface,
+                border = SkyflowBorders.Accent
             ) {
                 Column(
                     modifier = Modifier
-                        .background(fieldGlow)
                         .padding(horizontal = 14.dp, vertical = 11.dp)
                 ) {
                     Row(
@@ -445,9 +426,9 @@ fun TunnelTab() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Код доступа",
-                            fontSize = 8.sp, color = Color(0xFF6B7280),
-                            letterSpacing = 0.6.sp,
+                            "КОД ДОСТУПА",
+                            fontSize = 8.sp, color = SkyflowColors.Accent,
+                            letterSpacing = 0.8.sp,
                             modifier = Modifier.padding(bottom = 5.dp)
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -458,15 +439,15 @@ fun TunnelTab() {
                                 val tagText: String
                                 when (linkProvider) {
                                     LinkProvider.VK -> {
-                                        tagBg = Color(0x263B82F6)
-                                        tagBorder = Color(0x4D3B82F6)
-                                        tagColor = Color(0xFF60A5FA)
+                                        tagBg = SkyflowColors.VkStripe.copy(alpha = 0.15f)
+                                        tagBorder = SkyflowColors.VkStripe.copy(alpha = 0.3f)
+                                        tagColor = SkyflowColors.VkStripe
                                         tagText = "VK"
                                     }
                                     LinkProvider.YANDEX -> {
-                                        tagBg = Color(0x26F59E0B)
-                                        tagBorder = Color(0x4DF59E0B)
-                                        tagColor = Color(0xFFFBBF24)
+                                        tagBg = SkyflowColors.YandexTag.copy(alpha = 0.15f)
+                                        tagBorder = SkyflowColors.YandexTag.copy(alpha = 0.3f)
+                                        tagColor = SkyflowColors.YandexTag
                                         tagText = "Яндекс"
                                     }
                                     else -> {
@@ -477,7 +458,7 @@ fun TunnelTab() {
                                     }
                                 }
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = SkyflowShapes.LogEntry,
                                     color = tagBg,
                                     border = BorderStroke(0.5.dp, tagBorder)
                                 ) {
@@ -503,9 +484,9 @@ fun TunnelTab() {
                             when (linkStatus) {
                                 LinkStatus.CHECKING -> {
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0x206366F1),
-                                        border = BorderStroke(0.5.dp, Color(0x406366F1))
+                                        shape = SkyflowShapes.LogEntry,
+                                        color = SkyflowColors.AccentMuted,
+                                        border = BorderStroke(0.5.dp, SkyflowColors.Accent.copy(alpha = 0.25f))
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -514,22 +495,22 @@ fun TunnelTab() {
                                         ) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.size(6.dp),
-                                                color = Color(0xFF818CF8),
+                                                color = SkyflowColors.AccentLight,
                                                 strokeWidth = 1.dp
                                             )
                                             Text(
                                                 "Проверка", fontSize = 8.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = Color(0xFF818CF8)
+                                                color = SkyflowColors.AccentLight
                                             )
                                         }
                                     }
                                 }
                                 LinkStatus.ACTIVE -> {
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0x204ADE80),
-                                        border = BorderStroke(0.5.dp, Color(0x404ADE80))
+                                        shape = SkyflowShapes.LogEntry,
+                                        color = SkyflowColors.Connected.copy(alpha = 0.125f),
+                                        border = BorderStroke(0.5.dp, SkyflowColors.Connected.copy(alpha = 0.25f))
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -540,21 +521,21 @@ fun TunnelTab() {
                                                 Modifier
                                                     .size(4.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0xFF4ADE80))
+                                                    .background(SkyflowColors.Connected)
                                             )
                                             Text(
                                                 "Активна", fontSize = 8.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = Color(0xFF4ADE80)
+                                                color = SkyflowColors.Connected
                                             )
                                         }
                                     }
                                 }
                                 LinkStatus.DEAD -> {
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0x20F87171),
-                                        border = BorderStroke(0.5.dp, Color(0x40F87171))
+                                        shape = SkyflowShapes.LogEntry,
+                                        color = SkyflowColors.ErrorColor.copy(alpha = 0.125f),
+                                        border = BorderStroke(0.5.dp, SkyflowColors.ErrorColor.copy(alpha = 0.25f))
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -565,21 +546,21 @@ fun TunnelTab() {
                                                 Modifier
                                                     .size(4.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0xFFF87171))
+                                                    .background(SkyflowColors.ErrorColor)
                                             )
                                             Text(
                                                 "Недоступна", fontSize = 8.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = Color(0xFFF87171)
+                                                color = SkyflowColors.ErrorColor
                                             )
                                         }
                                     }
                                 }
                                 LinkStatus.NO_NETWORK -> {
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0x20F59E0B),
-                                        border = BorderStroke(0.5.dp, Color(0x40F59E0B))
+                                        shape = SkyflowShapes.LogEntry,
+                                        color = SkyflowColors.WarnColor.copy(alpha = 0.125f),
+                                        border = BorderStroke(0.5.dp, SkyflowColors.WarnColor.copy(alpha = 0.25f))
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -590,12 +571,12 @@ fun TunnelTab() {
                                                 Modifier
                                                     .size(4.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0xFFF59E0B))
+                                                    .background(SkyflowColors.WarnColor)
                                             )
                                             Text(
                                                 "Не проверена", fontSize = 8.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = Color(0xFFF59E0B)
+                                                color = SkyflowColors.WarnColor
                                             )
                                         }
                                     }
@@ -616,20 +597,26 @@ fun TunnelTab() {
                             }
                         },
                         readOnly = tunnelRunning,
+                        visualTransformation = if (vkLink.length > 42) {
+                            VisualTransformation { text ->
+                                TransformedText(
+                                    AnnotatedString(text.text.take(42) + "..."),
+                                    OffsetMapping.Identity
+                                )
+                            }
+                        } else {
+                            VisualTransformation.None
+                        },
                         textStyle = TextStyle(
                             fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = when (linkProvider) {
-                                LinkProvider.YANDEX -> Color(0xFFFCD34D)
-                                LinkProvider.VK -> Color(0xFFA5B4FC)
-                                else -> Color(0xFF6B7280)
-                            }
+                            fontFamily = FontFamily.Default,
+                            color = SkyflowColors.TextAccent,
                         ),
                         decorationBox = { inner ->
                             if (vkLink.isEmpty()) {
                                 Text(
                                     "vk.com/call/join/... или telemost.yandex.ru/j/...",
-                                    fontSize = 11.sp, color = Color(0xFF3F3F5A)
+                                    fontSize = 11.sp, color = SkyflowColors.Placeholder
                                 )
                             }
                             inner()
@@ -650,7 +637,7 @@ fun TunnelTab() {
                     ) {
                         Column {
                             Spacer(Modifier.height(5.dp))
-                            HorizontalDivider(color = Color(0xFF1E1C3A), thickness = 0.5.dp)
+                            HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
                             Spacer(Modifier.height(5.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -662,14 +649,14 @@ fun TunnelTab() {
                                     timerLabel,
                                     fontSize = 7.sp,
                                     color = if (linkRemainingSeconds <= 3600) timerColor
-                                    else Color(0xFF6B7280)
+                                    else SkyflowColors.TextSecondary
                                 )
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(3.dp)
                                         .clip(RoundedCornerShape(2.dp))
-                                        .background(Color(0xFF1E1C3A))
+                                        .background(SkyflowColors.Border)
                                 ) {
                                     val animatedPct by animateFloatAsState(
                                         timerPct,
@@ -729,12 +716,9 @@ fun TunnelTab() {
                                                 }
                                             }
                                         },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFF13112A),
-                                    border = BorderStroke(
-                                        0.5.dp,
-                                        if (isCreatingLink) Color(0xFF6366F1) else autoBtnBorderColor
-                                    )
+                                    shape = SkyflowShapes.Chip,
+                                    color = SkyflowColors.Surface,
+                                    border = SkyflowBorders.Accent
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
@@ -744,7 +728,7 @@ fun TunnelTab() {
                                         if (isCreatingLink) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.size(10.dp),
-                                                color = Color(0xFF6366F1),
+                                                color = SkyflowColors.Accent,
                                                 strokeWidth = 1.5.dp
                                             )
                                         }
@@ -761,14 +745,14 @@ fun TunnelTab() {
                                 Text(
                                     text = autoLinkError,
                                     fontSize = 10.sp,
-                                    color = Color(0xFFF59E0B),
+                                    color = SkyflowColors.WarnColor,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
                     }
                     Spacer(Modifier.height(7.dp))
-                    HorizontalDivider(color = Color(0xFF1E1C3A), thickness = 0.5.dp)
+                    HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
                     Spacer(Modifier.height(7.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -780,14 +764,14 @@ fun TunnelTab() {
                             linkStatus == LinkStatus.DEAD -> {
                                 Text(
                                     "Звонок завершён или ссылка устарела",
-                                    fontSize = 7.5.sp, color = Color(0xFFF87171),
+                                    fontSize = 7.5.sp, color = SkyflowColors.ErrorColor,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
                             linkStatus == LinkStatus.NO_NETWORK -> {
                                 Text(
                                     "Нет подключения для проверки",
-                                    fontSize = 7.5.sp, color = Color(0xFFF59E0B),
+                                    fontSize = 7.5.sp, color = SkyflowColors.WarnColor,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -797,33 +781,33 @@ fun TunnelTab() {
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Хеш:", fontSize = 7.5.sp, color = Color(0xFF6B7280))
+                                    Text("Хеш:", fontSize = 7.5.sp, color = SkyflowColors.TextSecondary)
                                     Text(
                                         parsedHash,
                                         fontSize = 7.5.sp,
                                         fontFamily = FontFamily.Monospace,
                                         color = if (linkProvider == LinkProvider.YANDEX)
-                                            Color(0xFFFBBF24) else Color(0xFF818CF8),
+                                            SkyflowColors.YandexTag else SkyflowColors.AccentLight,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f)
                                     )
                                     if (linkStatus == LinkStatus.ACTIVE) {
-                                        Text("✓ Готова", fontSize = 7.sp, color = Color(0xFF4ADE80))
+                                        Text("✓ Готова", fontSize = 7.sp, color = SkyflowColors.Connected)
                                     }
                                 }
                             }
                             vkLink.isBlank() -> {
                                 Text(
                                     "Вставьте ссылку для проверки",
-                                    fontSize = 7.5.sp, color = Color(0xFF3F3F5A),
+                                    fontSize = 7.5.sp, color = SkyflowColors.Placeholder,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
                             else -> {
                                 Text(
                                     "Формат не распознан",
-                                    fontSize = 7.5.sp, color = Color(0xFFF87171),
+                                    fontSize = 7.5.sp, color = SkyflowColors.ErrorColor,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -831,16 +815,16 @@ fun TunnelTab() {
                         if (vkLink.isBlank()) {
                             val clipboardManager = LocalClipboardManager.current
                             Surface(
-                                shape = RoundedCornerShape(5.dp),
-                                color = Color(0xFF1E1C3A),
-                                border = BorderStroke(0.5.dp, Color(0xFF2A2850)),
+                                shape = SkyflowShapes.PasteButton,
+                                color = SkyflowColors.Border,
+                                border = SkyflowBorders.Accent,
                                 modifier = Modifier.clickable {
                                     clipboardManager.getText()?.text?.let { vkLink = it }
                                 }
                             ) {
                                 Text(
                                     "Вставить",
-                                    fontSize = 7.5.sp, color = Color(0xFF6B7280),
+                                    fontSize = 7.5.sp, color = SkyflowColors.TextSecondary,
                                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                                 )
                             }
@@ -882,9 +866,9 @@ fun TunnelTab() {
                 // ── Traffic Block ──────────────────────────────────────────
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(11.dp),
-                    color = Color(0xFF13112A),
-                    border = BorderStroke(0.5.dp, Color(0xFF1E1C3A))
+                    shape = SkyflowShapes.Card,
+                    color = SkyflowColors.Surface,
+                    border = SkyflowBorders.Default
                 ) {
                     Column {
                         Row(
@@ -895,7 +879,7 @@ fun TunnelTab() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "ТРАФИК", fontSize = 8.sp, color = Color(0xFF6B7280),
+                                "ТРАФИК", fontSize = 8.sp, color = SkyflowColors.TextSecondary,
                                 letterSpacing = 0.6.sp
                             )
                             Row(
@@ -906,16 +890,16 @@ fun TunnelTab() {
                                     Modifier
                                         .size(4.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF4ADE80))
+                                        .background(SkyflowColors.Connected)
                                         .graphicsLayer { alpha = liveDotAlpha }
                                 )
                                 Text(
-                                    "Live", fontSize = 7.5.sp, color = Color(0xFF4ADE80),
+                                    "Live", fontSize = 7.5.sp, color = SkyflowColors.Connected,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
-                        HorizontalDivider(color = Color(0xFF1E1C3A), thickness = 0.5.dp)
+                        HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
                         Row(
                             modifier = Modifier.padding(8.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -923,21 +907,21 @@ fun TunnelTab() {
                             TrafficBox(
                                 label = "Загружено",
                                 arrow = "↓",
-                                arrowColor = Color(0xFF60A5FA),
+                                arrowColor = SkyflowColors.TrafficDown,
                                 valueMb = downMb,
                                 speedMbs = downSpeedMbs,
                                 history = downHistory,
-                                barColor = Color(0xFF3B82F6),
+                                barColor = SkyflowColors.TrafficDownBar,
                                 modifier = Modifier.weight(1f)
                             )
                             TrafficBox(
                                 label = "Отдано",
                                 arrow = "↑",
-                                arrowColor = Color(0xFF818CF8),
+                                arrowColor = SkyflowColors.AccentLight,
                                 valueMb = upMb,
                                 speedMbs = upSpeedMbs,
                                 history = upHistory,
-                                barColor = Color(0xFF6366F1),
+                                barColor = SkyflowColors.Accent,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -947,9 +931,9 @@ fun TunnelTab() {
                 // ── Services Block ─────────────────────────────────────────
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(11.dp),
-                    color = Color(0xFF13112A),
-                    border = BorderStroke(0.5.dp, Color(0xFF1E1C3A))
+                    shape = SkyflowShapes.Card,
+                    color = SkyflowColors.Surface,
+                    border = SkyflowBorders.Default
                 ) {
                     Column {
                         Row(
@@ -965,7 +949,7 @@ fun TunnelTab() {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    "СЕРВИСЫ", fontSize = 8.sp, color = Color(0xFF6B7280),
+                                    "СЕРВИСЫ", fontSize = 8.sp, color = SkyflowColors.TextSecondary,
                                     letterSpacing = 0.6.sp
                                 )
                                 Row(
@@ -974,10 +958,10 @@ fun TunnelTab() {
                                 ) {
                                     services.forEach { svc ->
                                         val dotColor = when {
-                                            svc.pingMs == -1 -> Color(0xFF6366F1)
-                                            svc.pingMs == -2 -> Color(0xFFF87171)
-                                            svc.pingMs > 300 -> Color(0xFFF59E0B)
-                                            else -> Color(0xFF4ADE80)
+                                            svc.pingMs == -1 -> SkyflowColors.Accent
+                                            svc.pingMs == -2 -> SkyflowColors.ErrorColor
+                                            svc.pingMs > 300 -> SkyflowColors.WarnColor
+                                            else -> SkyflowColors.Connected
                                         }
                                         Box(Modifier.size(4.dp).clip(CircleShape).background(dotColor))
                                     }
@@ -989,13 +973,13 @@ fun TunnelTab() {
                                         "$okCount/${services.size} ОК",
                                         fontSize = 7.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (okCount == services.size) Color(0xFF4ADE80)
-                                        else Color(0xFFF59E0B)
+                                        color = if (okCount == services.size) SkyflowColors.Connected
+                                        else SkyflowColors.WarnColor
                                     )
                                 }
                             }
                             Text(
-                                "▾", fontSize = 12.sp, color = Color(0xFF4B5563),
+                                "▾", fontSize = 12.sp, color = SkyflowColors.TextMuted,
                                 modifier = Modifier.graphicsLayer { rotationX = chevronRotation }
                             )
                         }
@@ -1006,7 +990,7 @@ fun TunnelTab() {
                             exit = shrinkVertically(tween(200)) + fadeOut(tween(150))
                         ) {
                             Column {
-                                HorizontalDivider(color = Color(0xFF1E1C3A), thickness = 0.5.dp)
+                                HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
                                 services.forEachIndexed { idx, svc ->
                                     Row(
                                         modifier = Modifier
@@ -1018,7 +1002,7 @@ fun TunnelTab() {
                                         Box(
                                             modifier = Modifier
                                                 .size(22.dp)
-                                                .clip(RoundedCornerShape(6.dp))
+                                                .clip(SkyflowShapes.Tag)
                                                 .background(svc.iconBg),
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -1028,55 +1012,55 @@ fun TunnelTab() {
                                             svc.name,
                                             fontSize = 8.5.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFFD4D4D8),
+                                            color = SkyflowColors.TextPrimary,
                                             modifier = Modifier.weight(1f)
                                         )
                                         when {
                                             svc.pingMs == -1 -> {
                                                 CircularProgressIndicator(
                                                     modifier = Modifier.size(8.dp),
-                                                    color = Color(0xFF818CF8),
+                                                    color = SkyflowColors.AccentLight,
                                                     strokeWidth = 1.dp
                                                 )
                                             }
                                             svc.pingMs == -2 -> {
                                                 Box(
                                                     Modifier.size(5.dp).clip(CircleShape)
-                                                        .background(Color(0xFFF87171))
+                                                        .background(SkyflowColors.ErrorColor)
                                                 )
                                                 Text(
                                                     "Недоступен", fontSize = 7.5.sp,
-                                                    color = Color(0xFFF87171),
+                                                    color = SkyflowColors.ErrorColor,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
                                             }
                                             svc.pingMs > 300 -> {
                                                 Text(
                                                     "${svc.pingMs}мс", fontSize = 7.sp,
-                                                    color = Color(0xFF4B5563)
+                                                    color = SkyflowColors.TextMuted
                                                 )
                                                 Box(
                                                     Modifier.size(5.dp).clip(CircleShape)
-                                                        .background(Color(0xFFF59E0B))
+                                                        .background(SkyflowColors.WarnColor)
                                                 )
                                                 Text(
                                                     "Мед.", fontSize = 7.5.sp,
-                                                    color = Color(0xFFF59E0B),
+                                                    color = SkyflowColors.WarnColor,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
                                             }
                                             else -> {
                                                 Text(
                                                     "${svc.pingMs}мс", fontSize = 7.sp,
-                                                    color = Color(0xFF4B5563)
+                                                    color = SkyflowColors.TextMuted
                                                 )
                                                 Box(
                                                     Modifier.size(5.dp).clip(CircleShape)
-                                                        .background(Color(0xFF4ADE80))
+                                                        .background(SkyflowColors.Connected)
                                                 )
                                                 Text(
                                                     "ОК", fontSize = 7.5.sp,
-                                                    color = Color(0xFF4ADE80),
+                                                    color = SkyflowColors.Connected,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
                                             }
@@ -1085,7 +1069,7 @@ fun TunnelTab() {
                                     if (idx < services.size - 1) {
                                         HorizontalDivider(
                                             modifier = Modifier.padding(horizontal = 10.dp),
-                                            color = Color(0xFF1E1C3A),
+                                            color = SkyflowColors.Border,
                                             thickness = 0.5.dp
                                         )
                                     }
@@ -1107,9 +1091,9 @@ private fun PowerButton(
     onClick: () -> Unit
 ) {
     val targetColor = when {
-        !tunnelRunning -> ColorIdle
-        isConnecting -> ColorConnecting
-        else -> ColorConnected
+        !tunnelRunning -> SkyflowColors.Idle
+        isConnecting -> SkyflowColors.Connecting
+        else -> SkyflowColors.Connected
     }
     val ringColor by animateColorAsState(targetColor, tween(400), label = "ring")
 
@@ -1192,9 +1176,9 @@ private fun StatusLabel(
     hint: String
 ) {
     val color = when {
-        !tunnelRunning -> MaterialTheme.colorScheme.onSurfaceVariant
-        isConnecting -> ColorConnecting
-        else -> ColorConnected
+        !tunnelRunning -> SkyflowColors.Idle
+        isConnecting -> SkyflowColors.Connecting
+        else -> SkyflowColors.Connected
     }
     val text = when {
         !tunnelRunning -> "Отключено"
@@ -1242,9 +1226,9 @@ private fun ServerStatusRow(
     isConnected: Boolean
 ) {
     val dotColor = when {
-        !tunnelRunning -> Color(0xFF3F3F46)
-        isConnecting -> ColorConnecting
-        else -> ColorConnected
+        !tunnelRunning -> SkyflowColors.Placeholder
+        isConnecting -> SkyflowColors.Connecting
+        else -> SkyflowColors.Connected
     }
     val statusText = when {
         !tunnelRunning -> "Облачный релей · ожидание"
@@ -1252,12 +1236,23 @@ private fun ServerStatusRow(
         isConnected -> "Облачный релей · активен"
         else -> "Облачный релей · готов"
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Canvas(Modifier.size(6.dp)) { drawCircle(dotColor) }
-        Text(statusText, style = MaterialTheme.typography.labelSmall, color = dotColor)
+        Text(
+            "ОБЛАЧНЫЙ РЕЛЕЙ",
+            fontSize = 8.sp,
+            color = SkyflowColors.TextMuted,
+            letterSpacing = 1.sp
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Canvas(Modifier.size(5.dp)) { drawCircle(dotColor) }
+            Text(statusText.substringAfter(" · "), fontSize = 9.sp, color = dotColor)
+        }
     }
 }
 
@@ -1354,9 +1349,9 @@ private fun TrafficBox(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF0D0B1A),
-        border = BorderStroke(0.5.dp, Color(0xFF1E1C3A))
+        shape = SkyflowShapes.Card,
+        color = SkyflowColors.Surface,
+        border = SkyflowBorders.Default
     ) {
         Column(Modifier.padding(6.dp, 6.dp, 6.dp, 4.dp)) {
             Row(
@@ -1365,8 +1360,8 @@ private fun TrafficBox(
             ) {
                 Text(arrow, fontSize = 9.sp, color = arrowColor)
                 Text(
-                    label.uppercase(), fontSize = 6.5.sp,
-                    color = Color(0xFF6B7280), letterSpacing = 0.4.sp
+                    label.uppercase(), fontSize = 8.sp,
+                    color = SkyflowColors.TextSecondary, letterSpacing = 0.4.sp
                 )
             }
             Spacer(Modifier.height(2.dp))
@@ -1375,15 +1370,15 @@ private fun TrafficBox(
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    "%.0f".format(valueMb), fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold, color = Color(0xFFD4D4D8)
+                    "%.0f".format(valueMb), fontSize = 20.sp,
+                    fontWeight = FontWeight.Medium, color = SkyflowColors.TextPrimary
                 )
-                Text("МБ", fontSize = 8.sp, color = Color(0xFF6B7280))
+                Text("МБ", fontSize = 10.sp, color = SkyflowColors.TextSecondary)
             }
             Text(
                 "$arrow %.1f МБ/с".format(speedMbs),
                 fontSize = 7.sp,
-                color = if (speedMbs > 0f) arrowColor else Color(0xFF4B5563)
+                color = if (speedMbs > 0f) arrowColor else SkyflowColors.TextMuted
             )
             Spacer(Modifier.height(4.dp))
             val maxVal = history.maxOrNull()?.coerceAtLeast(1f) ?: 1f
