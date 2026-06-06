@@ -77,7 +77,9 @@ class TunnelService : Service() {
                     protocol = intent.getStringExtra("protocol") ?: "udp",
                     captchaMode = sanitizeCaptchaMode(intent.getStringExtra("captcha_mode")),
                     captchaSolveMethod = intent.getStringExtra("captcha_solve_method") ?: "auto",
-                    provider = intent.getStringExtra("provider") ?: "vk"
+                    provider = intent.getStringExtra("provider") ?: "vk",
+                    tunnelMode = intent.getStringExtra("tunnel_mode") ?: "whitelist",
+                    wgPort = intent.getIntExtra("wg_port", 56001)
                 )
                 startTunnel(params)
             }
@@ -114,7 +116,9 @@ class TunnelService : Service() {
                 val basePeer = store.peer.first()
                 val manualPortsEnabled = store.manualPortsEnabled.first()
                 val serverDtlsPort = if (manualPortsEnabled) store.serverDtlsPort.first() else 56000
+                val serverWgPort = if (manualPortsEnabled) store.serverWgPort.first() else 56001
                 val peerWithPort = if (basePeer.isBlank() || basePeer.contains(":")) basePeer else "$basePeer:$serverDtlsPort"
+                val tunnelMode = store.tunnelMode.first()
                 val wdttLink = store.wdttLink.first()
                 val provider = if (
                     wdttLink.contains("telemost", ignoreCase = true) ||
@@ -134,9 +138,15 @@ class TunnelService : Service() {
                     connectionPassword = store.connectionPassword.first(),
                     captchaMode = sanitizeCaptchaMode(store.captchaMode.first()),
                     captchaSolveMethod = store.captchaSolveMethod.first(),
-                    provider = provider
+                    provider = provider,
+                    tunnelMode = tunnelMode,
+                    wgPort = serverWgPort
                 )
-                if (params.peer.isNotEmpty() && params.vkHashes.isNotEmpty()) {
+                val canRestore = params.peer.isNotEmpty() && (
+                    tunnelMode == "speed" ||
+                        params.vkHashes.isNotEmpty()
+                )
+                if (canRestore) {
                     launch(Dispatchers.Main) {
                         startTunnel(params)
                     }
@@ -238,6 +248,7 @@ class TunnelService : Service() {
                 val isCellular = transportType == NetworkCapabilities.TRANSPORT_CELLULAR
 
                 if ((wasWifi && isCellular) || (wasCellular && isWifi)) {
+                    if (TunnelManager.tunnelMode.value == com.wdtt.client.TunnelMode.SPEED) return
                     Log.d("TunnelService", "WiFi ↔ мобильная сеть, перезапуск libclient.so (WireGuard без изменений)")
                     handleNetworkChange()
                 }

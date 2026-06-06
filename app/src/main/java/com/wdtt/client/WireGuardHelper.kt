@@ -25,6 +25,34 @@ class WireGuardHelper(context: Context) {
         private val wgMutex = Mutex()
         private var sharedTunnel: WgTunnel? = null
 
+        const val SPEED_WG_PORT = 51820
+
+        /**
+         * Endpoint для скоростного режима: IP из [peer] (settingsStore.peer),
+         * DTLS-порт отбрасывается, WG-порт всегда [SPEED_WG_PORT].
+         * Пример: "192.145.30.132:56000" → "192.145.30.132:51820"
+         */
+        fun speedEndpointFromPeer(peer: String): String {
+            val host = peer.trim().substringBefore(":").ifBlank { ServerConfig.HOST }
+            return "$host:$SPEED_WG_PORT"
+        }
+
+        /** WireGuard-конфиг для SPEED: endpoint из settingsStore.peer → IP:51820. */
+        fun buildConfigForSpeedMode(peer: String): String =
+            buildConfigWithEndpoint(speedEndpointFromPeer(peer))
+
+        /** Собирает WireGuard-конфиг с заданным endpoint (для скоростного режима — VPS напрямую). */
+        fun buildConfigWithEndpoint(endpoint: String): String {
+            val base = ensureWireGuardMtu(ServerConfig.WG_CONFIG.trim())
+            return base.lines().joinToString("\n") { line ->
+                if (line.trimStart().startsWith("Endpoint", ignoreCase = true)) {
+                    "Endpoint = $endpoint"
+                } else {
+                    line
+                }
+            }.trimEnd()
+        }
+
         /** Подставляет или заменяет MTU в секции [Interface] (TURN/DTLS накладные расходы). */
         fun ensureWireGuardMtu(config: String, mtu: Int = 1280): String {
             val mtuLine = "MTU = $mtu"

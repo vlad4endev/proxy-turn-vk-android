@@ -62,10 +62,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.YandexParser
 import com.wdtt.client.LinkProvider
+import com.wdtt.client.ConnectionStage
 import com.wdtt.client.ServerConfig
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
+import com.wdtt.client.TunnelMode
 import com.wdtt.client.TunnelService
+import com.wdtt.client.VkHashParser
 import com.wdtt.client.ui.theme.AdaptiveLayout
 import com.wdtt.client.ui.theme.ScreenSize
 import com.wdtt.client.ui.theme.adaptiveButtonSize
@@ -102,7 +105,12 @@ fun TunnelTab() {
     val tunnelRunning by TunnelManager.running.collectAsStateWithLifecycle()
     val activeWorkers by TunnelManager.activeWorkers.collectAsStateWithLifecycle()
     val connectionHint by TunnelManager.connectionHint.collectAsStateWithLifecycle()
+    val connectionStage by TunnelManager.connectionStage.collectAsStateWithLifecycle()
     val stats by TunnelManager.stats.collectAsStateWithLifecycle()
+    val savedTunnelMode by store.tunnelMode.collectAsStateWithLifecycle(initialValue = "whitelist")
+    val runtimeTunnelMode by TunnelManager.tunnelMode.collectAsStateWithLifecycle()
+    val isSpeedMode = savedTunnelMode == "speed" ||
+        runtimeTunnelMode == TunnelMode.SPEED
 
     var vkLink by rememberSaveable { mutableStateOf("") }
     val connectedSince by TunnelManager.connectedSince.collectAsStateWithLifecycle()
@@ -176,16 +184,26 @@ fun TunnelTab() {
         }
     }
 
-    val isConnected = tunnelRunning && activeWorkers > 0
-    val isConnecting = isStarting || (tunnelRunning && activeWorkers <= 0)
+    val isConnected = if (isSpeedMode) {
+        tunnelRunning && connectionStage == ConnectionStage.VPN_READY
+    } else {
+        tunnelRunning && activeWorkers > 0
+    }
+    val isConnecting = if (isSpeedMode) {
+        isStarting || (tunnelRunning && connectionStage != ConnectionStage.VPN_READY && connectionStage != ConnectionStage.FAILED)
+    } else {
+        isStarting || (tunnelRunning && activeWorkers <= 0)
+    }
     val vkHash = remember(vkLink) { parseVkHash(vkLink) }
     val powerEnabled = tunnelRunning || isStarting ||
+        isSpeedMode ||
         (vkLink.isNotBlank() && vkHash.isNotBlank())
 
-    LaunchedEffect(tunnelRunning, activeWorkers) {
+    LaunchedEffect(tunnelRunning, activeWorkers, connectionStage, isSpeedMode) {
         when {
             !tunnelRunning -> isStarting = false
-            activeWorkers > 0 -> isStarting = false
+            isSpeedMode && connectionStage == ConnectionStage.VPN_READY -> isStarting = false
+            !isSpeedMode && activeWorkers > 0 -> isStarting = false
         }
     }
 
@@ -354,6 +372,14 @@ fun TunnelTab() {
         if (tunnelRunning || isStarting) {
             isStarting = false
             disconnectTunnel(context)
+        } else if (isSpeedMode) {
+            isStarting = true
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    store.saveConnectionPassword(ServerConfig.PASSWORD)
+                }
+                startConnect()
+            }
         } else if (vkLink.isBlank()) {
             Toast.makeText(context, "Вставьте ссылку подключения", Toast.LENGTH_SHORT).show()
         } else if (vkHash.isBlank()) {
@@ -398,6 +424,8 @@ fun TunnelTab() {
             Spacer(Modifier.height(if (metrics.isCompactHeight) 4.dp else 12.dp))
         }
 
+        TunnelModeBadge(isSpeedMode = isSpeedMode)
+
         Box(contentAlignment = Alignment.Center) {
             val glowBrush = when {
                 isConnected -> SkyflowGradients.PowerConnected
@@ -416,7 +444,7 @@ fun TunnelTab() {
                 isConnecting = isConnecting,
                 enabled = powerEnabled,
                 onClick = onPowerClick,
-                size = powerSize,
+                buttonSize = powerSize,
             )
         }
 
@@ -429,7 +457,7 @@ fun TunnelTab() {
         )
 
         AnimatedVisibility(
-            visible = !isConnected,
+            visible = !isConnected && !isSpeedMode,
             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
@@ -1104,12 +1132,50 @@ fun TunnelTab() {
 }
 
 @Composable
+private fun TunnelModeBadge(isSpeedMode: Boolean) {
+    val bg = if (isSpeedMode) SkyflowColors.Connected.copy(alpha = 0.15f)
+    else SkyflowColors.Accent.copy(alpha = 0.15f)
+    val border = if (isSpeedMode) SkyflowColors.Connected.copy(alpha = 0.35f)
+    else SkyflowColors.Accent.copy(alpha = 0.35f)
+    val color = if (isSpeedMode) SkyflowColors.Connected else SkyflowColors.AccentLight
+    val label = if (isSpeedMode) "⚡ СКОРОСТНОЙ" else "☁ БЕЛЫЙ СПИСОК"
+    val subtitle = if (isSpeedMode) "WireGuard → VPS напрямую" else "VK/TURN → WireGuard"
+
+    Surface(
+        shape = SkyflowShapes.Chip,
+        color = bg,
+        border = BorderStroke(0.5.dp, border)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    label,
+                    fontSize = readableSp(11f),
+                    fontWeight = FontWeight.Bold,
+                    color = color,
+                    letterSpacing = 0.6.sp
+                )
+                Text(
+                    subtitle,
+                    fontSize = readableSp(10f),
+                    color = SkyflowColors.TextMuted
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun PowerButton(
     tunnelRunning: Boolean,
     isConnecting: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
-    size: androidx.compose.ui.unit.Dp = 140.dp,
+    buttonSize: androidx.compose.ui.unit.Dp = 140.dp,
 ) {
     val targetColor = when {
         !tunnelRunning -> SkyflowColors.Idle
@@ -1143,18 +1209,19 @@ private fun PowerButton(
 
     Box(
         modifier = Modifier
-            .size(size)
+            .size(buttonSize)
             .then(if (isActive) Modifier.graphicsLayer { scaleX = pulseScale; scaleY = pulseScale } else Modifier)
             .alpha(if (enabled) 1f else 0.38f)
             .clip(CircleShape)
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
-                indication = ripple(bounded = true, radius = size / 2),
+                indication = ripple(bounded = true, radius = buttonSize / 2),
                 onClick = onClick
             )
             .drawBehind {
-                val r = size.minDimension / 2f
+                val canvasSize = this.size
+                val r = canvasSize.minDimension / 2f
                 val ringStroke = 2.dp.toPx()
                 val ringRadius = r - ringStroke / 2f
 
@@ -1186,15 +1253,15 @@ private fun PowerButton(
                             sweepAngle = arcSweep,
                             useCenter = false,
                             topLeft = Offset(ringStroke / 2f, ringStroke / 2f),
-                            size = Size(size.width - ringStroke, size.height - ringStroke),
+                            size = Size(canvasSize.width - ringStroke, canvasSize.height - ringStroke),
                             style = Stroke(ringStroke, cap = StrokeCap.Round)
                         )
                     }
                 }
                 val iconSize = 50.dp.toPx()
-                val iconLeft = (size.width - iconSize) / 2f
-                val iconTop = (size.height - iconSize) / 2f
-                val cx = size.width / 2f
+                val iconLeft = (canvasSize.width - iconSize) / 2f
+                val iconTop = (canvasSize.height - iconSize) / 2f
+                val cx = canvasSize.width / 2f
                 val sw = 2.dp.toPx()
                 drawLine(
                     ringColor,
@@ -1314,6 +1381,46 @@ private suspend fun connectTunnel(
             store.saveConnectionPassword(ServerConfig.PASSWORD)
         }
 
+        val tunnelMode = store.tunnelMode.first()
+        val serverWgPort = store.serverWgPort.first()
+        val isSpeed = tunnelMode == "speed"
+
+        if (isSpeed) {
+            val storedPeer = withContext(Dispatchers.IO) { store.peer.first() }
+            if (storedPeer.trim().substringBefore(":").isBlank()) {
+                withContext(Dispatchers.Main) {
+                    onStarting(false)
+                    Toast.makeText(context, "Укажите IP сервера в настройках", Toast.LENGTH_SHORT).show()
+                }
+                return
+            }
+
+            val svcIntent = Intent(context, TunnelService::class.java).apply {
+                action = "START"
+                putExtra("peer", storedPeer)
+                putExtra("vk_hashes", "")
+                putExtra("secondary_vk_hash", "")
+                putExtra("workers_per_hash", 18)
+                putExtra("port", 9000)
+                putExtra("sni", "")
+                putExtra("connection_password", ServerConfig.PASSWORD)
+                putExtra("protocol", "udp")
+                putExtra("provider", "vk")
+                putExtra("captcha_mode", "auto")
+                putExtra("captcha_solve_method", "auto")
+                putExtra("tunnel_mode", "speed")
+            }
+
+            withContext(Dispatchers.Main) {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    context.startForegroundService(svcIntent)
+                } else {
+                    context.startService(svcIntent)
+                }
+            }
+            return
+        }
+
         val linkToSave = rawLink.trim()
         val provider = when {
             linkToSave.contains("telemost", ignoreCase = true) ||
@@ -1366,6 +1473,8 @@ private suspend fun connectTunnel(
             putExtra("provider", provider)
             putExtra("captcha_mode", captchaMode)
             putExtra("captcha_solve_method", captchaSolveMethod)
+            putExtra("tunnel_mode", "whitelist")
+            putExtra("wg_port", serverWgPort)
         }
 
         withContext(Dispatchers.Main) {

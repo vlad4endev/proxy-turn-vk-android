@@ -84,6 +84,7 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
     val savedServerDtlsPort by settingsStore.serverDtlsPort.collectAsStateWithLifecycle(initialValue = 56000)
     val savedServerWgPort by settingsStore.serverWgPort.collectAsStateWithLifecycle(initialValue = 56001)
     val savedListenPort by settingsStore.listenPort.collectAsStateWithLifecycle(initialValue = 9000)
+    val savedTunnelMode by settingsStore.tunnelMode.collectAsStateWithLifecycle(initialValue = "whitelist")
 
     val activeProfile by settingsStore.activeProfile.collectAsStateWithLifecycle(initialValue = 0)
     val wdttLinkMode by settingsStore.wdttLinkMode.collectAsStateWithLifecycle(initialValue = false)
@@ -273,7 +274,12 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
     val isHashesValid = combinedHashes.isNotBlank()
     val isLinkValid = wdttLink.trim().startsWith("wdtt://") && wdttLink.trim().split(":").size >= 6 && wdttLink.trim().split(":")[5].isNotBlank()
     val isManualValid = isPeerValid && isHashesValid && savedConnectionPassword.isNotBlank() && !hasInputHashErrors
-    val isValid = if (wdttLinkMode) isLinkValid else isManualValid
+    val isSpeedMode = savedTunnelMode == "speed"
+    val isValid = when {
+        isSpeedMode -> isPeerValid && savedConnectionPassword.isNotBlank()
+        wdttLinkMode -> isLinkValid
+        else -> isManualValid
+    }
     val effectiveServerDtlsPort = if (manualPortsEnabled) serverDtlsPortInput.toIntOrNull()?.coerceIn(1, 65535) ?: 56000 else 56000
     val effectiveLocalPort = if (manualPortsEnabled) portInput.toIntOrNull()?.coerceIn(1, 65535) ?: 9000 else 9000
     var pendingStartAfterVpnPermission by remember { mutableStateOf(false) }
@@ -323,6 +329,8 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
             putExtra("connection_password", finalPassword)
             putExtra("captcha_mode", effectiveCaptchaMode)
             putExtra("captcha_solve_method", effectiveCaptchaSolveMethod)
+            putExtra("tunnel_mode", savedTunnelMode)
+            putExtra("wg_port", if (manualPortsEnabled) serverWgPortInput.toIntOrNull()?.coerceIn(1, 65535) ?: 56001 else 56001)
         }
         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
         else context.startService(intent)
@@ -400,6 +408,14 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
             .padding(adaptivePadding()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        TunnelModeSelector(
+            selectedMode = savedTunnelMode,
+            enabled = !tunnelRunning,
+            onModeChange = { mode ->
+                scope.launch { settingsStore.saveTunnelMode(mode) }
+            }
+        )
+
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (!wdttLinkMode) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1264,6 +1280,102 @@ fun SecretsDialog(
 }
 
 // extension
+@Composable
+private fun TunnelModeSelector(
+    selectedMode: String,
+    enabled: Boolean,
+    onModeChange: (String) -> Unit,
+) {
+    val isSpeed = selectedMode == "speed"
+    AppSectionCard(contentPadding = PaddingValues(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "Режим подключения",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TunnelModeChip(
+                    label = "Белый список",
+                    subtitle = "VK → TURN → WG",
+                    selected = !isSpeed,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChange("whitelist") }
+                )
+                TunnelModeChip(
+                    label = "Скоростной",
+                    subtitle = "WG напрямую",
+                    selected = isSpeed,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChange("speed") }
+                )
+            }
+            Text(
+                if (isSpeed) {
+                    "WireGuard подключается к VPS напрямую, без libclient.so и обхода через VK/TURN."
+                } else {
+                    "Трафик идёт через libclient.so → VK/TURN → WireGuard (текущая логика)."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun TunnelModeChip(
+    label: String,
+    subtitle: String,
+    selected: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val containerColor by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        label = "mode_chip_bg"
+    )
+    val borderColor by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+        label = "mode_chip_border"
+    )
+    Surface(
+        modifier = modifier
+            .heightIn(min = 56.dp)
+            .then(if (enabled) Modifier else Modifier),
+        shape = RoundedCornerShape(14.dp),
+        color = containerColor,
+        border = BorderStroke(1.dp, borderColor),
+        onClick = { if (enabled) onClick() },
+        enabled = enabled,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                else MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 private fun androidx.compose.ui.graphics.Color.luminance(): Float {
     val r = red
     val g = green

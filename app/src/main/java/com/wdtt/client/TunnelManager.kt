@@ -26,6 +26,18 @@ enum class ConnectionStage {
     FAILED
 }
 
+enum class TunnelMode {
+    WHITELIST,
+    SPEED;
+
+    companion object {
+        fun from(raw: String): TunnelMode = when (raw.lowercase()) {
+            "speed" -> SPEED
+            else -> WHITELIST
+        }
+    }
+}
+
 enum class LogCategory {
     SYSTEM,
     VK,
@@ -111,6 +123,7 @@ object TunnelManager {
     val connectionHint = MutableStateFlow("")
     val connectionSnapshot = MutableStateFlow(TunnelConnectionSnapshot())
     val connectedSince = MutableStateFlow(0L)
+    val tunnelMode = MutableStateFlow(TunnelMode.WHITELIST)
 
     val cooldownActive = MutableStateFlow(false)
     private var cooldownJob: Job? = null
@@ -222,8 +235,81 @@ object TunnelManager {
         }
         
         wgHelper = WireGuardHelper(appContext)
+        val mode = TunnelMode.from(params.tunnelMode)
+        tunnelMode.value = mode
 
         scope.launch {
+            try {
+                if (mode == TunnelMode.SPEED) {
+                    startSpeedMode(appContext, params)
+                    return@launch
+                }
+                startWhitelistMode(appContext, params, isSwitching)
+            } catch (e: Exception) {
+                updateLog("critical_start_error", "Критическая ошибка запуска: ${e.message}", 99, true)
+                e.printStackTrace()
+                running.value = false
+                connectionStage.value = ConnectionStage.FAILED
+                startInProgress = false
+                transportRestartInProgress = false
+            }
+        }
+    }
+
+    private suspend fun startSpeedMode(context: Context, params: TunnelParams) {
+        val storedPeer = SettingsStore(context).peer.first().ifBlank { params.peer }
+        val host = storedPeer.trim().substringBefore(":")
+        if (host.isBlank()) {
+            updateLog("peer_error", "Ошибка: не указан IP VPS", 99, true)
+            connectionStage.value = ConnectionStage.FAILED
+            connectionHint.value = "Укажите IP сервера в настройках"
+            running.value = false
+            startInProgress = false
+            return
+        }
+
+        val endpoint = WireGuardHelper.speedEndpointFromPeer(storedPeer)
+        val configStr = WireGuardHelper.buildConfigForSpeedMode(storedPeer)
+
+        connectionSnapshot.value = TunnelConnectionSnapshot(
+            peer = endpoint,
+            listen = "—",
+            hashMode = "Скоростной",
+            hashCount = 0,
+            workers = 0,
+            captchaMode = "—",
+            captchaSolve = "—"
+        )
+        updateLog("path_start", "[ПУТЬ] Телефон → VPS $endpoint (WireGuard напрямую)", 0)
+        updateLog("server_peer", "[СЕРВЕР] VPS $endpoint (без TURN/VK)", 1)
+        connectionStage.value = ConnectionStage.STARTING
+        connectionHint.value = "Подключение WireGuard к VPS…"
+        config.value = configStr
+        running.value = true
+        startInProgress = false
+        transportRestartInProgress = false
+        wireGuardStarted = true
+        wireGuardExpectedAtMs = System.currentTimeMillis()
+
+        withContext(Dispatchers.Main) {
+            try {
+                wgHelper?.startTunnel(configStr)
+                connectionStage.value = ConnectionStage.VPN_READY
+                connectionHint.value = ""
+                markConnectedIfNeeded()
+                updateLog("ready", "[READY] Скоростной режим — VPN активен ✓", 2, false)
+            } catch (e: Exception) {
+                wireGuardStarted = false
+                wireGuardExpectedAtMs = 0L
+                running.value = false
+                connectionStage.value = ConnectionStage.FAILED
+                connectionHint.value = "Не удалось подключиться к VPS ($endpoint)"
+                updateLog("vpn_start_error", "Ошибка запуска VPN: ${e.readableMessage()}", 99, true)
+            }
+        }
+    }
+
+    private suspend fun startWhitelistMode(context: Context, params: TunnelParams, isSwitching: Boolean) {
             try {
                 val vkLink = if (activeHashIndex == 0) params.vkHashes else params.secondaryVkHash
                 val linkProvider = YandexParser.detectProvider(vkLink).let { detected ->
@@ -258,7 +344,7 @@ object TunnelManager {
                     running.value = false
                     startInProgress = false
                     transportRestartInProgress = false
-                    return@launch
+                    return
                 }
 
                 val hashCount = 1
@@ -297,7 +383,7 @@ object TunnelManager {
                     connectionStage.value = ConnectionStage.FAILED
                     startInProgress = false
                     transportRestartInProgress = false
-                    return@launch
+                    return
                 }
 
                 val providerFlag = params.provider.ifBlank {
@@ -337,7 +423,7 @@ object TunnelManager {
                 startInProgress = false
                 transportRestartInProgress = false
                 startLogReader()
-                startWatchdog(appContext, params)
+                startWatchdog(context, params)
 
             } catch (e: Exception) {
                 updateLog("critical_start_error", "Критическая ошибка запуска: ${e.message}", 99, true)
@@ -347,7 +433,6 @@ object TunnelManager {
                 startInProgress = false
                 transportRestartInProgress = false
             }
-        }
     }
 
     private fun startLogReader() {
@@ -828,6 +913,7 @@ object TunnelManager {
     }
 
     fun restartTransport() {
+        if (tunnelMode.value == TunnelMode.SPEED) return
         val params = currentParams ?: return
         val context = lastContext ?: return
         scheduleTransportRestart(
@@ -838,12 +924,13 @@ object TunnelManager {
     }
 
     fun pause() {
-        if (!running.value) return
+        if (!running.value || tunnelMode.value == TunnelMode.SPEED) return
         killProcess()
         activeWorkers.value = 0
     }
 
     fun resume() {
+        if (tunnelMode.value == TunnelMode.SPEED) return
         val params = currentParams ?: return
         val context = lastContext ?: return
         scheduleTransportRestart(context, params)
@@ -928,6 +1015,7 @@ object TunnelManager {
         connectionStage.value = ConnectionStage.IDLE
         connectionHint.value = ""
         connectionSnapshot.value = TunnelConnectionSnapshot()
+        tunnelMode.value = TunnelMode.WHITELIST
         currentParams = null
         currentLinkProvider = LinkProvider.UNKNOWN
         ManlCaptchaWebViewManager.cancelCaptcha()
@@ -1095,5 +1183,7 @@ data class TunnelParams(
     val protocol: String = "udp",
     val captchaMode: String = "auto",
     val captchaSolveMethod: String = "auto",
-    val provider: String = "vk"
+    val provider: String = "vk",
+    val tunnelMode: String = "whitelist",
+    val wgPort: Int = 56001
 )

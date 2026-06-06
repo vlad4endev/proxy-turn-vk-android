@@ -3,6 +3,7 @@ package com.wdtt.client.ui
 import com.wdtt.client.ui.theme.AdaptiveLayout
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer

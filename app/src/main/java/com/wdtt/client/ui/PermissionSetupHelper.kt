@@ -61,11 +61,13 @@ object PermissionSetupHelper {
     }
 
     fun needsBatterySetup(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return false
+        }
         return try {
-            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-            !pm.isIgnoringBatteryOptimizations(context.packageName)
-        } catch (_: Exception) {
+            val powerManager = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
+            powerManager.isIgnoringBatteryOptimizations(context.packageName) == false
+        } catch (e: Exception) {
             false
         }
     }
