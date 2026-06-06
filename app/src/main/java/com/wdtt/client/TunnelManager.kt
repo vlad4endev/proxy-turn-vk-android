@@ -1,6 +1,7 @@
 package com.wdtt.client
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -522,7 +523,7 @@ object TunnelManager {
 
                 val binaryPath = context.applicationInfo.nativeLibraryDir + "/libclient.so"
                 val binaryFile = File(binaryPath)
-                
+
                 if (!binaryFile.exists()) {
                     updateLog("binary_error", "Ошибка: Бинарный файл не найден", 99, true)
                     connectionStage.value = ConnectionStage.FAILED
@@ -552,7 +553,7 @@ object TunnelManager {
                 val pb = ProcessBuilder(cmd)
                 pb.directory(context.filesDir)
                 pb.redirectErrorStream(true)
-                
+
                 val env = pb.environment()
                 env["LD_LIBRARY_PATH"] = context.applicationInfo.nativeLibraryDir
 
@@ -565,13 +566,7 @@ object TunnelManager {
                 transportRestartInProgress = false
                 startLogReader()
                 startWatchdog(context, params)
-                scope.launch {
-                    delay(5000)
-                    if (!wireGuardStarted && process?.isAlive == true) {
-                        if (!running.value) running.value = true
-                        launchWireGuardIfNeeded()
-                    }
-                }
+                // ── WireGuard будет запущен автоматически при получении READY лога от Go-клиента ──
                 if (linkProvider == LinkProvider.YANDEX) {
                     startYandexAuthTimeout()
                 }
@@ -984,9 +979,11 @@ object TunnelManager {
         config.value = configStr
         wireGuardExpectedAtMs = System.currentTimeMillis()
         markConnectedIfNeeded()
-        scope.launch(Dispatchers.Main) {
+        // ── Запуск на IO диспетчере, не на Main, чтобы избежать deadlock ──
+        scope.launch(Dispatchers.IO) {
             try {
                 wgHelper?.startTunnel(configStr)
+                updateLog("wg_started", "[VPN] WireGuard туннель запущен ✓", 2, false)
             } catch (e: Exception) {
                 wireGuardStarted = false
                 wireGuardExpectedAtMs = 0L
@@ -1179,6 +1176,8 @@ object TunnelManager {
                 connectionStage.value = ConnectionStage.VPN_READY
                 connectionHint.value = ""
                 markConnectedIfNeeded()
+                // ── Go-клиент готов, запускаем WireGuard ──
+                launchWireGuardIfNeeded()
             }
             line.contains("FATAL_AUTH", true) -> {
                 connectionStage.value = ConnectionStage.FAILED
@@ -1199,11 +1198,23 @@ object TunnelManager {
     fun stop() {
         startInProgress = false
         transportRestartInProgress = false
-        scope.launch(Dispatchers.Main) {
-            tun2socksHelper?.stop()
-            tun2socksHelper = null
-            xrayHelper?.stop()
-            wgHelper?.stopTunnel()
+        scope.launch(Dispatchers.IO) {
+            try {
+                tun2socksHelper?.stop()
+                tun2socksHelper = null
+            } catch (e: Exception) {
+                Log.e("TunnelManager", "Failed to stop tun2socks: ${e.message}")
+            }
+            try {
+                xrayHelper?.stop()
+            } catch (e: Exception) {
+                Log.e("TunnelManager", "Failed to stop xray: ${e.message}")
+            }
+            try {
+                wgHelper?.stopTunnel()
+            } catch (e: Exception) {
+                Log.e("TunnelManager", "Failed to stop wireguard: ${e.message}")
+            }
         }
         killProcess()
         running.value = false
