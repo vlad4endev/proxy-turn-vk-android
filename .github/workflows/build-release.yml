@@ -1,4 +1,4 @@
-name: Build WDTT Release
+name: Build SKYFLOW M Release
 
 on:
   push:
@@ -234,7 +234,7 @@ jobs:
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v6
         with:
-          name: WDTT-release-apk
+          name: SKYFLOW-M-release-apk
           path: build/artifacts/apk/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -242,7 +242,7 @@ jobs:
       - name: Upload server binaries artifact
         uses: actions/upload-artifact@v6
         with:
-          name: WDTT-server-binaries
+          name: SKYFLOW-M-server-binaries
           path: build/artifacts/server/*
           if-no-files-found: error
           retention-days: 14
@@ -250,7 +250,7 @@ jobs:
       - name: Upload Go client libraries artifact
         uses: actions/upload-artifact@v6
         with:
-          name: WDTT-go-client-libraries
+          name: SKYFLOW-M-go-client-libraries
           path: build/artifacts/go-client/*
           if-no-files-found: error
           retention-days: 14
