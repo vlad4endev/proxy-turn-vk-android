@@ -80,6 +80,8 @@ class SettingsStore(context: Context) {
 
         // ═══ Tunnel Connection Mode ═══
         private val TUNNEL_MODE = stringPreferencesKey("tunnel_mode") // "whitelist" or "speed"
+        private val TUNNEL_MODE_AUTO = booleanPreferencesKey("tunnel_mode_auto")
+        private val TUNNEL_MODE_MANUAL_OVERRIDE = booleanPreferencesKey("tunnel_mode_manual_override")
 
         // ═══ Theme Mode ═══
         private val THEME_MODE = stringPreferencesKey("theme_mode") // "system", "light", "dark"
@@ -109,7 +111,7 @@ class SettingsStore(context: Context) {
             return when (baseKey) {
                 PEER, VK_HASHES, VK_LINK_RAW, SECONDARY_VK_HASH, PROTOCOL, SNI, USER_AGENT, DEPLOY_IP, DEPLOY_LOGIN, DEPLOY_PASSWORD, DEPLOY_PASSWORD_ENCRYPTED, DEPLOY_SSH_PORT, EXCLUDED_APPS, CONNECTION_PASSWORD, CONNECTION_PASSWORD_ENCRYPTED, DEPLOY_MAIN_PASSWORD, DEPLOY_MAIN_PASSWORD_ENCRYPTED, DEPLOY_ADMIN_ID, DEPLOY_ADMIN_ID_ENCRYPTED, DEPLOY_BOT_TOKEN, DEPLOY_BOT_TOKEN_ENCRYPTED, PROXY_MODE, PROXY_HOST, CAPTCHA_MODE, CAPTCHA_SOLVE_METHOD, CAPTCHA_WBV_SOLVE_METHOD, WDTT_LINK, TUNNEL_MODE -> stringPreferencesKey(newName) as Preferences.Key<T>
                 WORKERS_PER_HASH, LISTEN_PORT, SERVER_DTLS_PORT, SERVER_WG_PORT, PROXY_PORT -> intPreferencesKey(newName) as Preferences.Key<T>
-                MANUAL_PORTS_ENABLED, NO_DTLS, NO_DNS, IS_WHITELIST, WDTT_LINK_MODE -> booleanPreferencesKey(newName) as Preferences.Key<T>
+                MANUAL_PORTS_ENABLED, NO_DTLS, NO_DNS, IS_WHITELIST, WDTT_LINK_MODE, TUNNEL_MODE_AUTO, TUNNEL_MODE_MANUAL_OVERRIDE -> booleanPreferencesKey(newName) as Preferences.Key<T>
                 else -> throw IllegalArgumentException("Unsupported key type: ${baseKey.name}")
             }
         }
@@ -269,6 +271,16 @@ class SettingsStore(context: Context) {
     val tunnelMode: Flow<String> = dataStore.data.map { prefs ->
         val profile = prefs[ACTIVE_PROFILE] ?: 0
         prefs[getProfileKey(TUNNEL_MODE, profile)] ?: "whitelist"
+    }
+
+    val tunnelModeAutoSwitch: Flow<Boolean> = dataStore.data.map { prefs ->
+        val profile = prefs[ACTIVE_PROFILE] ?: 0
+        prefs[getProfileKey(TUNNEL_MODE_AUTO, profile)] ?: true
+    }
+
+    val tunnelModeManualOverride: Flow<Boolean> = dataStore.data.map { prefs ->
+        val profile = prefs[ACTIVE_PROFILE] ?: 0
+        prefs[getProfileKey(TUNNEL_MODE_MANUAL_OVERRIDE, profile)] ?: false
     }
 
     // ═══ Theme Mode ═══
@@ -535,6 +547,34 @@ class SettingsStore(context: Context) {
         dataStore.edit { prefs ->
             val profile = prefs[ACTIVE_PROFILE] ?: 0
             prefs[getProfileKey(TUNNEL_MODE, profile)] = mode
+        }
+    }
+
+    /** Автовыбор режима по типу сети — сбрасывает ручной override. */
+    suspend fun applyAutoTunnelMode(mode: String) {
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            prefs[getProfileKey(TUNNEL_MODE, profile)] = mode
+            prefs[getProfileKey(TUNNEL_MODE_MANUAL_OVERRIDE, profile)] = false
+        }
+    }
+
+    /** Ручной выбор режима пользователем — автопереключение приостанавливается до смены Wi‑Fi/LTE. */
+    suspend fun saveTunnelModeManual(mode: String) {
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            prefs[getProfileKey(TUNNEL_MODE, profile)] = mode
+            prefs[getProfileKey(TUNNEL_MODE_MANUAL_OVERRIDE, profile)] = true
+        }
+    }
+
+    suspend fun saveTunnelModeAutoSwitch(enabled: Boolean) {
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            prefs[getProfileKey(TUNNEL_MODE_AUTO, profile)] = enabled
+            if (enabled) {
+                prefs[getProfileKey(TUNNEL_MODE_MANUAL_OVERRIDE, profile)] = false
+            }
         }
     }
 

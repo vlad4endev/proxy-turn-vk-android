@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -35,32 +33,12 @@ android {
         }
     }
 
-    val localProperties = Properties()
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        localProperties.load(localPropertiesFile.inputStream())
-    }
-
     signingConfigs {
         create("release") {
-            val keyFile = localProperties.getProperty("KEYSTORE_FILE")
-            if (keyFile != null) {
-                // Резолвим путь: если начинается с "..", берём от корня проекта
-                val resolvedFile = if (keyFile.startsWith("..")) {
-                    // ../release.keystore -> корень проекта / release.keystore
-                    file(rootDir.resolve(keyFile.substring(3)))
-                } else {
-                    file(keyFile)
-                }
-                if (resolvedFile.exists()) {
-                    storeFile = resolvedFile
-                    storePassword = localProperties.getProperty("KEYSTORE_PASSWORD")
-                    keyAlias = localProperties.getProperty("KEY_ALIAS")
-                    keyPassword = localProperties.getProperty("KEY_PASSWORD")
-                } else {
-                    println("WARNING: Keystore file not found: $keyFile (resolved: ${resolvedFile.absolutePath})")
-                }
-            }
+            storeFile = file("../skyflow-release.keystore")
+            storePassword = "skyflow2026"
+            keyAlias = "skyflow"
+            keyPassword = "skyflow2026"
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
@@ -75,20 +53,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            val keyFile = localProperties.getProperty("KEYSTORE_FILE")
-            val resolvedFile = if (keyFile != null && keyFile.startsWith("..")) {
-                file(rootDir.resolve(keyFile.substring(3)))
-            } else if (keyFile != null) {
-                file(keyFile)
-            } else null
-            
-            if (resolvedFile != null && resolvedFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
-                println("✅ Signing config applied: ${resolvedFile.absolutePath}")
-            } else {
-                println("⚠️ WARNING: Keystore not found, using debug signing")
-                println("   Looked for: ${resolvedFile?.absolutePath ?: keyFile}")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

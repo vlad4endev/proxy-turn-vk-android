@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,6 +53,10 @@ import com.wdtt.client.ConnectionStage
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.fetchLatestReleaseInfo
 import com.wdtt.client.isNewerVersion
+import com.wdtt.client.ui.theme.adaptiveIconSize
+import com.wdtt.client.ui.theme.adaptivePadding
+import com.wdtt.client.ui.theme.rememberScreenSize
+import com.wdtt.client.ui.theme.ScreenSize
 
 @Composable
 fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
@@ -82,24 +88,27 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
         }
     }
     val metrics = rememberScreenMetrics()
+    val contentPadding = adaptivePadding()
+    val logoSize = adaptiveIconSize()
+    val isExpanded = rememberScreenSize() == ScreenSize.EXPANDED
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = metrics.contentHorizontalPadding),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(top = contentPadding, bottom = contentPadding + 8.dp)
     ) {
         item {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 16.dp)
+                    .padding(vertical = contentPadding)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(logoSize)
                         .clip(SkyflowShapes.Logo)
                         .background(SkyflowColors.GlassSurface)
                         .border(SkyflowBorders.Logo, SkyflowShapes.Logo),
@@ -107,9 +116,8 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
                 ) {
                     Text(
                         text = "S",
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Black,
-                        style = androidx.compose.ui.text.TextStyle(
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontWeight = FontWeight.Black,
                             brush = Brush.verticalGradient(
                                 listOf(
                                     SkyflowColors.LogoGradientTop,
@@ -120,22 +128,22 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
                         )
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 Text(
                     text = "SKYFLOW",
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = SkyflowColors.BrandTitle,
                     letterSpacing = 2.sp
                 )
                 Text(
                     text = "M",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = SkyflowColors.Accent,
                     letterSpacing = 3.sp
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Surface(
                     shape = SkyflowShapes.VersionBadge,
                     color = SkyflowColors.GlassSurface,
@@ -143,9 +151,9 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
                 ) {
                     Text(
                         text = "v${BuildConfig.VERSION_NAME} · build ${BuildConfig.VERSION_CODE}",
-                        fontSize = 9.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = SkyflowColors.TextSecondary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     )
                 }
             }
@@ -160,39 +168,87 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
             }
         }
 
-        item {
-            InfoCard(title = "Система", icon = Icons.Outlined.PhoneAndroid) {
-                InfoRow(label = "Устройство", value = deviceModel)
-                InfoDivider()
-                InfoRow(label = "Android", value = androidRelease)
-                InfoDivider()
-                InfoRow(
-                    label = "Версия приложения",
-                    value = versionName,
-                    valueColor = SkyflowColors.Accent
-                )
-                InfoDivider()
-                InfoRow(label = "Дата сборки", value = buildDate)
+        if (isExpanded) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    InfoCard(
+                        title = "Система",
+                        icon = Icons.Outlined.PhoneAndroid,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        InfoRow(label = "Устройство", value = deviceModel)
+                        InfoDivider()
+                        InfoRow(label = "Android", value = androidRelease)
+                        InfoDivider()
+                        InfoRow(
+                            label = "Версия приложения",
+                            value = versionName,
+                            valueColor = SkyflowColors.Accent
+                        )
+                        InfoDivider()
+                        InfoRow(label = "Дата сборки", value = buildDate)
+                    }
+                    InfoCard(
+                        title = "Инфраструктура",
+                        icon = Icons.Outlined.Computer,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        InfoRow(
+                            label = "Протокол",
+                            value = "AES-256 / ChaCha20",
+                            valueColor = SkyflowColors.Accent
+                        )
+                        InfoDivider()
+                        InfoRow(label = "Транспорт", value = "UDP · зашифрован")
+                        InfoDivider()
+                        InfoRow(label = "Регион", value = "EU · приватный")
+                        InfoDivider()
+                        InfoRow(
+                            label = "Статус",
+                            value = "● $infrastructureStatus",
+                            valueColor = statusColor
+                        )
+                    }
+                }
             }
-        }
+        } else {
+            item {
+                InfoCard(title = "Система", icon = Icons.Outlined.PhoneAndroid) {
+                    InfoRow(label = "Устройство", value = deviceModel)
+                    InfoDivider()
+                    InfoRow(label = "Android", value = androidRelease)
+                    InfoDivider()
+                    InfoRow(
+                        label = "Версия приложения",
+                        value = versionName,
+                        valueColor = SkyflowColors.Accent
+                    )
+                    InfoDivider()
+                    InfoRow(label = "Дата сборки", value = buildDate)
+                }
+            }
 
-        item {
-            InfoCard(title = "Инфраструктура", icon = Icons.Outlined.Computer) {
-                InfoRow(
-                    label = "Протокол",
-                    value = "AES-256 / ChaCha20",
-                    valueColor = SkyflowColors.Accent
-                )
-                InfoDivider()
-                InfoRow(label = "Транспорт", value = "UDP · зашифрован")
-                InfoDivider()
-                InfoRow(label = "Регион", value = "EU · приватный")
-                InfoDivider()
-                InfoRow(
-                    label = "Статус",
-                    value = "● $infrastructureStatus",
-                    valueColor = statusColor
-                )
+            item {
+                InfoCard(title = "Инфраструктура", icon = Icons.Outlined.Computer) {
+                    InfoRow(
+                        label = "Протокол",
+                        value = "AES-256 / ChaCha20",
+                        valueColor = SkyflowColors.Accent
+                    )
+                    InfoDivider()
+                    InfoRow(label = "Транспорт", value = "UDP · зашифрован")
+                    InfoDivider()
+                    InfoRow(label = "Регион", value = "EU · приватный")
+                    InfoDivider()
+                    InfoRow(
+                        label = "Статус",
+                        value = "● $infrastructureStatus",
+                        valueColor = statusColor
+                    )
+                }
             }
         }
 
@@ -222,12 +278,15 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
             InfoCard(title = "Автор", icon = Icons.Outlined.Person) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(vertical = 2.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 56.dp)
+                        .padding(vertical = 4.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
                             .background(SkyflowColors.AuthorAvatarBg)
                             .border(SkyflowBorders.AuthorAvatar, CircleShape),
@@ -235,7 +294,7 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
                     ) {
                         Text(
                             text = "ВЧ",
-                            fontSize = 10.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = SkyflowColors.AccentLight
                         )
@@ -243,13 +302,13 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
                     Column {
                         Text(
                             text = "Влад Чендев",
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = SkyflowColors.TextPrimary
                         )
                         Text(
                             text = "Разработчик · SKYFLOW M",
-                            fontSize = 8.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = SkyflowColors.TextSecondary
                         )
                     }
@@ -264,12 +323,11 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
         item {
             Text(
                 text = "SKYFLOW M · © Влад Чендев 2026",
-                fontSize = 9.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = SkyflowColors.TextMuted,
-                letterSpacing = 0.3.sp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 12.dp),
                 textAlign = TextAlign.Center
             )
         }
@@ -280,38 +338,38 @@ fun InfoTab(onUpdateFound: (AppReleaseInfo) -> Unit = {}) {
 private fun InfoCard(
     title: String,
     icon: ImageVector,
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = SkyflowShapes.Card,
         color = SkyflowColors.GlassSurface,
         border = SkyflowBorders.Glass
     ) {
         Column {
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = SkyflowColors.Accent,
-                    modifier = Modifier.size(13.dp)
+                    modifier = Modifier.size(22.dp)
                 )
                 Text(
                     text = title,
-                    fontSize = 9.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = SkyflowColors.TextPrimary,
-                    letterSpacing = 0.3.sp
                 )
             }
             HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
             Column(
-                modifier = Modifier.padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 content = content
             )
         }
@@ -325,16 +383,26 @@ private fun InfoRow(
     valueColor: Color = SkyflowColors.TextPrimary
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, fontSize = 9.sp, color = SkyflowColors.TextSecondary)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = SkyflowColors.TextSecondary,
+            modifier = Modifier.weight(1f, fill = false),
+        )
         Text(
             text = value,
-            fontSize = 9.sp,
+            style = MaterialTheme.typography.bodyMedium,
             color = valueColor,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
         )
     }
 }
@@ -345,17 +413,23 @@ private fun InfoDivider() = HorizontalDivider(color = SkyflowColors.Border, thic
 @Composable
 private fun FeatureRow(text: String) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.Top
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(4.dp)
-                .offset(y = 3.dp)
+                .size(6.dp)
+                .offset(y = 8.dp)
                 .clip(CircleShape)
                 .background(SkyflowColors.Accent)
         )
-        Text(text = text, fontSize = 7.5.sp, color = SkyflowColors.TextSecondary, lineHeight = 11.sp)
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = SkyflowColors.TextSecondary,
+            lineHeight = 22.sp,
+        )
     }
 }
 

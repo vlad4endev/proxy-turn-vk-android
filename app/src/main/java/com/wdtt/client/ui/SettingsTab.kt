@@ -412,7 +412,7 @@ fun SettingsTabContent(context: android.content.Context, scope: kotlinx.coroutin
             selectedMode = savedTunnelMode,
             enabled = !tunnelRunning,
             onModeChange = { mode ->
-                scope.launch { settingsStore.saveTunnelMode(mode) }
+                scope.launch { settingsStore.saveTunnelModeManual(mode) }
             }
         )
 

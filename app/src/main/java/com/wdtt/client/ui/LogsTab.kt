@@ -29,7 +29,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,7 +42,6 @@ import com.wdtt.client.TunnelConnectionSnapshot
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.ui.theme.adaptivePadding
-import com.wdtt.client.ui.theme.readableSp
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -117,19 +117,26 @@ fun LogsTab() {
         ) {
             Text(
                 "Диагностика",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Row {
-                IconButton(onClick = { TunnelManager.clearLogs() }) {
+                IconButton(
+                    onClick = { TunnelManager.clearLogs() },
+                    modifier = Modifier.size(48.dp),
+                ) {
                     Icon(Icons.Default.Delete, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.primary)
                 }
-                IconButton(onClick = {
-                    val text = formatLogsForCopy(currentLogs, snapshot, connectionStage, connectionHint, stats, activeWorkers)
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("SKYFLOW M Logs", text))
-                    Toast.makeText(context, "Отчёт скопирован", Toast.LENGTH_SHORT).show()
-                }) {
+                IconButton(
+                    onClick = {
+                        val text = formatLogsForCopy(currentLogs, snapshot, connectionStage, connectionHint, stats, activeWorkers)
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("SKYFLOW M Logs", text))
+                        Toast.makeText(context, "Отчёт скопирован", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = "Копировать", tint = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -170,17 +177,16 @@ fun LogsTab() {
                         } else {
                             "Логирование выключено."
                         },
+                        style = MaterialTheme.typography.bodyMedium,
                         color = SkyflowColors.TextSecondary,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = TextAlign.Center,
                     )
                 }
             } else {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 12.dp)
                 ) {
                     items(filteredLogs, key = { it.key }) { entry ->
@@ -216,7 +222,7 @@ private fun ConnectionPathCard(
         color = SkyflowColors.GlassSurface,
         border = SkyflowBorders.Glass
     ) {
-        Column(Modifier.padding(10.dp)) {
+        Column(Modifier.padding(14.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -230,38 +236,46 @@ private fun ConnectionPathCard(
                         NodeState.ERROR -> SkyflowColors.ErrorColor
                         NodeState.IDLE -> SkyflowColors.NodeIdle
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 2.dp),
+                    ) {
                         Box(
                             Modifier
-                                .size(7.dp)
+                                .size(9.dp)
                                 .clip(CircleShape)
                                 .background(dotColor)
                         )
-                        Spacer(Modifier.height(2.dp))
-                        Text(nodeUi.node.short, fontSize = readableSp(12f), color = SkyflowColors.TextSecondary, maxLines = 1)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            nodeUi.node.short,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = SkyflowColors.TextSecondary,
+                            maxLines = 1,
+                        )
                     }
                     if (i < nodes.size - 1) {
                         Text(
                             "→",
-                            fontSize = readableSp(12f),
+                            style = MaterialTheme.typography.bodyMedium,
                             color = SkyflowColors.NodeIdle,
                             modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .padding(bottom = 8.dp)
+                                .padding(horizontal = 6.dp)
+                                .padding(bottom = 10.dp)
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(10.dp))
             HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(10.dp))
 
             Row(
                 Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 LogMetaItem("Этап", stageLabel, stageColor(stage, running))
                 LogMetaItem("Потоки", snapshot.workers.toString(), SkyflowColors.TextAccent)
@@ -270,8 +284,12 @@ private fun ConnectionPathCard(
             }
 
             if (hint.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
-                Text(hint, fontSize = readableSp(12f), color = SkyflowColors.ErrorColor, lineHeight = 18.sp)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = SkyflowColors.ErrorColor,
+                )
             }
         }
     }
@@ -279,14 +297,20 @@ private fun ConnectionPathCard(
 
 @Composable
 private fun LogMetaItem(key: String, value: String, valueColor: Color) {
-    Column {
+    Column(Modifier.widthIn(min = 72.dp)) {
         Text(
             key.uppercase(),
-            fontSize = readableSp(12f),
+            style = MaterialTheme.typography.labelSmall,
             color = SkyflowColors.TextSecondary,
-            letterSpacing = 0.6.sp
         )
-        Text(value, fontSize = readableSp(12f), color = valueColor, maxLines = 1)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = valueColor,
+            maxLines = 2,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -310,12 +334,15 @@ private fun LogFilterRow(selected: LogFilter, onSelect: (LogFilter) -> Unit) {
             ) {
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 40.dp)
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
                     Text(
                         filter.label,
-                        fontSize = readableSp(12f),
-                        color = if (isSelected) SkyflowColors.OnAccent else SkyflowColors.TextSecondary
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (isSelected) SkyflowColors.OnAccent else SkyflowColors.TextSecondary,
+                        maxLines = 1,
                     )
                 }
             }
@@ -366,75 +393,71 @@ fun LogLine(entry: LogEntry) {
             .drawBehind {
                 drawRect(
                     color = accentColor,
-                    size = Size(3.dp.toPx(), size.height)
+                    size = Size(4.dp.toPx(), size.height)
                 )
             },
         shape = SkyflowShapes.LogEntry,
         color = SkyflowColors.GlassSurface,
         border = SkyflowBorders.Glass
     ) {
-        Row(
-            modifier = Modifier
-                .padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.Top
+        Column(
+            modifier = Modifier.padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Column(modifier = Modifier.width(32.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     timeStr,
-                    fontSize = readableSp(12f),
+                    style = MaterialTheme.typography.labelMedium,
                     color = SkyflowColors.TextSecondary,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
                 )
-                Spacer(Modifier.height(2.dp))
                 Surface(
                     shape = SkyflowShapes.LogTag,
-                    color = tagColor.copy(alpha = 0.15f)
+                    color = tagColor.copy(alpha = 0.18f)
                 ) {
                     Text(
                         tag,
-                        fontSize = readableSp(12f),
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = tagColor,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        maxLines = 1,
                     )
                 }
-            }
-
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                Text(
-                    text = displayMessage,
-                    fontSize = readableSp(12f),
-                    lineHeight = 13.sp,
-                    color = SkyflowColors.TextPrimary,
-                    modifier = Modifier.weight(1f)
-                )
+                Spacer(Modifier.weight(1f))
                 if (entry.count > 1) {
                     Surface(
                         color = SkyflowColors.Border,
                         shape = SkyflowShapes.VersionBadge,
                         modifier = Modifier
-                            .defaultMinSize(minWidth = 18.dp, minHeight = 14.dp)
+                            .defaultMinSize(minWidth = 28.dp, minHeight = 24.dp)
                             .graphicsLayer(scaleX = animatedScale, scaleY = animatedScale)
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = "×${entry.count}",
                                 color = SkyflowColors.TextAccent,
-                                fontSize = readableSp(12f),
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
                             )
                         }
                     }
                 }
             }
+            Text(
+                text = displayMessage,
+                style = MaterialTheme.typography.bodyMedium,
+                color = SkyflowColors.TextPrimary,
+                lineHeight = 22.sp,
+            )
         }
     }
 }

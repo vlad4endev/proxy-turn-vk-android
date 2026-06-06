@@ -8,7 +8,11 @@ func TestNormalizeLink(t *testing.T) {
 		want string
 	}{
 		{"https://telemost.yandex.ru/j/AbCdEfGhIj", "AbCdEfGhIj"},
+		{"https://telemost.yandex.ru/j/AbCdEfGhIj?lang=ru", "AbCdEfGhIj"},
 		{"https://ya.ru/telemost/j/RoomHash1234", "RoomHash1234"},
+		{"https://ya.ru/calls/RoomHash1234", "RoomHash1234"},
+		{"https://ya.ru/calls/RoomHash1234?lang=ru", "RoomHash1234"},
+		{"https://telemost.yandex.ru/calls/RoomHash1234", "RoomHash1234"},
 		{"https://vk.com/call/join/abc", ""},
 	}
 	for _, tc := range tests {

@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -79,9 +80,17 @@ object TunnelManager {
     // 100% защита от утечек: единый управляемый глобальный Scope
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // Таймаут этапа авторизации Яндекс Телемост и текст ошибки для пользователя.
+    private const val YANDEX_AUTH_TIMEOUT_MS = 30_000L
+    private const val YANDEX_AUTH_TIMEOUT_MSG =
+        "Не удалось подключиться к серверу Яндекс. Проверьте ссылку и попробуйте снова."
+
     private var process: Process? = null
     private var readerJob: Job? = null
     private var watchdogJob: Job? = null
+    private var yandexAuthTimeoutJob: Job? = null
+    @Volatile
+    private var yandexCredsOk = false
     private var wgHelper: WireGuardHelper? = null
     @Volatile
     private var wireGuardStarted = false
@@ -100,8 +109,6 @@ object TunnelManager {
     private var currentParams: TunnelParams? = null
     private var lastContext: Context? = null
     private var forceRegenerateUA = false // принудительная перегенерация UA при ошибках
-    private var currentCaptchaMode = "wv" // режим обхода капчи: "wv" или "rjs"
-    private var currentCaptchaSolveMethod = "auto" // "manual" или "auto"
     private var currentLinkProvider = LinkProvider.UNKNOWN
 
     @Volatile
@@ -127,6 +134,18 @@ object TunnelManager {
 
     val cooldownActive = MutableStateFlow(false)
     private var cooldownJob: Job? = null
+
+    private val _showCaptchaModal = MutableStateFlow(false)
+    val showCaptchaModal: StateFlow<Boolean> = _showCaptchaModal
+
+    fun dismissCaptchaModal() {
+        _showCaptchaModal.value = false
+    }
+
+    fun onCaptchaSolved() {
+        _showCaptchaModal.value = false
+        updateLog("captcha_done", "[КАПЧА] Решена ✓", 5, false)
+    }
 
     fun clearUnreadErrors() {
         unreadErrorCount.value = 0
@@ -224,14 +243,14 @@ object TunnelManager {
             processStartedAtMs = 0L
             wireGuardExpectedAtMs = 0L
             wireGuardStarted = false
+            yandexCredsOk = false
             connectedSince.value = 0L
             lastActiveAtMs = 0L
             activeHashIndex = 0
+            _showCaptchaModal.value = false
             currentParams = params
             lastContext = appContext
             forceRegenerateUA = false
-            currentCaptchaMode = params.captchaMode
-            currentCaptchaSolveMethod = params.captchaSolveMethod
         }
         
         wgHelper = WireGuardHelper(appContext)
@@ -403,10 +422,6 @@ object TunnelManager {
                     "-provider", providerFlag,
                     "-n", totalWorkers.toString()
                 )
-                if (isVkCaptchaFlow()) {
-                    cmd.add("-captcha-solve")
-                    cmd.add("auto")
-                }
 
                 val pb = ProcessBuilder(cmd)
                 pb.directory(context.filesDir)
@@ -424,6 +439,9 @@ object TunnelManager {
                 transportRestartInProgress = false
                 startLogReader()
                 startWatchdog(context, params)
+                if (linkProvider == LinkProvider.YANDEX) {
+                    startYandexAuthTimeout()
+                }
 
             } catch (e: Exception) {
                 updateLog("critical_start_error", "Критическая ошибка запуска: ${e.message}", 99, true)
@@ -511,36 +529,6 @@ object TunnelManager {
                                     50,
                                     true
                             )
-                        }
-                        return@forEachLine
-                    }
-
-                    if (lineTrim.startsWith("CAPTCHA_SOLVE|")) {
-                        if (!isVkCaptchaFlow()) {
-                            writeCaptchaResult("error:yandex provider does not use vk captcha")
-                            return@forEachLine
-                        }
-                        val payload = lineTrim.substringAfter("CAPTCHA_SOLVE|")
-                        val parts = payload.split("|", limit = 3)
-                        when (parts.size) {
-                            3 -> {
-                                val requestMode = parts[0]
-                                val redirectUri = parts[1]
-                                val sessionToken = parts[2]
-                                scope.launch {
-                                    handleCaptchaSolve(requestMode, redirectUri, sessionToken)
-                                }
-                            }
-                            2 -> {
-                                val redirectUri = parts[0]
-                                val sessionToken = parts[1]
-                                scope.launch {
-                                    handleCaptchaSolve("selected", redirectUri, sessionToken)
-                                }
-                            }
-                            else -> {
-                                writeCaptchaResult("error:invalid CAPTCHA_SOLVE format")
-                            }
                         }
                         return@forEachLine
                     }
@@ -681,9 +669,36 @@ object TunnelManager {
                                 text.contains("Rate limit", true)
                             updateLog("vk_auth_${text.take(24).hashCode()}", "[ВК] $text", 2, isVkErr)
                         }
+                        lineTrim.contains("[Yandex") && lineTrim.contains("TURN creds OK") -> {
+                            // Аналог «Креды OK» для VK — успешная авторизация Яндекс.
+                            yandexCredsOk = true
+                            yandexAuthTimeoutJob?.cancel()
+                            updateLog(
+                                "creds_ok",
+                                "[ЯНДЕКС] Авторизация Яндекс Телемост ✓ — TURN получен",
+                                2,
+                                false
+                            )
+                            if (connectionStage.value == ConnectionStage.VK_CREDS ||
+                                connectionStage.value == ConnectionStage.STARTING
+                            ) {
+                                connectionStage.value = ConnectionStage.SERVER_DTLS
+                                connectionHint.value = "Шаг 2/2: подключение к VPS (шифрование)…"
+                            }
+                        }
+                        lineTrim.contains("[Yandex] timeout") -> {
+                            handleCriticalError(YANDEX_AUTH_TIMEOUT_MSG)
+                            return@forEachLine
+                        }
                         lineTrim.contains("[STREAM") && lineTrim.contains("[Yandex") -> {
                             val text = lineTrim.substringAfter("[Yandex").trim().ifBlank { lineTrim }
-                            updateLog("yandex_auth_${text.take(24).hashCode()}", "[ЯНДЕКС] $text", 2, false)
+                            val yandexErr = text.contains("timeout", true) ||
+                                text.contains("captcha", true) ||
+                                text.contains("ошибка", true) ||
+                                text.contains("не выполнен", true) ||
+                                text.contains("status=4", true) ||
+                                text.contains("status=5", true)
+                            updateLog("yandex_auth_${text.take(24).hashCode()}", "[ЯНДЕКС] $text", 2, yandexErr)
                         }
                         isVkCaptchaFlow() && (
                             lineTrim.contains("8765") ||
@@ -691,15 +706,10 @@ object TunnelManager {
                             lineTrim.contains("manual-captcha", ignoreCase = true) ||
                             lineTrim.contains("proxy HTTP server")
                         ) -> {
-                            val ctx = lastContext
-                            if (ctx != null) {
-                                scope.launch(Dispatchers.Main) {
-                                    CaptchaWebViewActivityLauncher.openManualCaptcha(ctx)
-                                }
-                            }
+                            _showCaptchaModal.value = true
                             updateLog(
-                                "captcha_proxy_open",
-                                "[КАПЧА] Открыт WebView для ручной капчи (127.0.0.1:8765)",
+                                "captcha_modal",
+                                "[КАПЧА] Пройдите проверку в окне",
                                 5,
                                 false
                             )
@@ -712,6 +722,19 @@ object TunnelManager {
                             lineTrim.contains("капча не решена") || lineTrim.contains("ошибка решения капчи")
                         ) ->
                             updateLog("captcha_failed", "[КАПЧА] Ошибка решения капчи", 5, true)
+                        // Английские строки реального Go-бинаря (Схема A: Go решает сам).
+                        // Специфичные матчеры идут раньше общего "[Captcha]".
+                        isVkCaptchaFlow() && lineTrim.contains("received success token") -> {
+                            _showCaptchaModal.value = false
+                            updateLog("captcha_done", "[КАПЧА] Решена ✓", 5, false)
+                        }
+                        isVkCaptchaFlow() && lineTrim.contains("Auto captcha failed") ->
+                            updateLog("captcha_auto_fail", "[КАПЧА] Авто не удалась, ручной режим", 5, false)
+                        isVkCaptchaFlow() && lineTrim.contains("[Captcha]") -> {
+                            connectionStage.value = ConnectionStage.VK_CAPTCHA
+                            connectionHint.value = "VK запросил капчу — не закрывайте приложение"
+                            updateLog("captcha_start", "[КАПЧА] Решение капчи...", 5, false)
+                        }
                         lineTrim.contains("[WRAP]") -> {
                             val text = lineTrim.substringAfter("[WRAP]").trim()
                             updateLog("wrap_status", "[WRAP] $text", 1, false)
@@ -849,6 +872,27 @@ object TunnelManager {
         }
     }
 
+    /**
+     * Сторож этапа авторизации Яндекс Телемост: если за 30 секунд Go-клиент не
+     * получил TURN-креды (нет строки «[Yandex] TURN creds OK»), показываем
+     * понятную пользователю ошибку вместо вечного зависания на «Авторизации».
+     */
+    private fun startYandexAuthTimeout() {
+        yandexAuthTimeoutJob?.cancel()
+        yandexCredsOk = false
+        yandexAuthTimeoutJob = scope.launch {
+            delay(YANDEX_AUTH_TIMEOUT_MS)
+            if (!isActive) return@launch
+            if (!yandexCredsOk &&
+                running.value &&
+                activeWorkers.value <= 0 &&
+                connectionStage.value != ConnectionStage.VPN_READY
+            ) {
+                handleCriticalError(YANDEX_AUTH_TIMEOUT_MSG)
+            }
+        }
+    }
+
     private fun startWatchdog(context: Context, params: TunnelParams) {
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
@@ -864,6 +908,7 @@ object TunnelManager {
                 }
 
                 if (
+                    _showCaptchaModal.value ||
                     ManlCaptchaWebViewManager.isCaptchaPending ||
                     CaptchaWebViewActivityLauncher.isCaptchaPending
                 ) {
@@ -939,6 +984,7 @@ object TunnelManager {
     private fun killProcess() {
         watchdogJob?.cancel()
         readerJob?.cancel()
+        yandexAuthTimeoutJob?.cancel()
         val proc = process
         process = null
         if (proc != null) {
@@ -971,6 +1017,10 @@ object TunnelManager {
                 connectionHint.value = "Шаг 1/2: авторизация VK…"
             }
             line.contains("[ГРУППА") && line.contains("Креды OK") -> {
+                connectionStage.value = ConnectionStage.SERVER_DTLS
+                connectionHint.value = "Шаг 2/2: подключение к VPS (шифрование)…"
+            }
+            line.contains("[Yandex") && line.contains("TURN creds OK") -> {
                 connectionStage.value = ConnectionStage.SERVER_DTLS
                 connectionHint.value = "Шаг 2/2: подключение к VPS (шифрование)…"
             }
@@ -1018,6 +1068,7 @@ object TunnelManager {
         tunnelMode.value = TunnelMode.WHITELIST
         currentParams = null
         currentLinkProvider = LinkProvider.UNKNOWN
+        _showCaptchaModal.value = false
         ManlCaptchaWebViewManager.cancelCaptcha()
         CaptchaWebViewActivityLauncher.dismiss()
     }
@@ -1033,6 +1084,7 @@ object TunnelManager {
             wireGuardStarted = false
             connectedSince.value = 0L
             currentParams = null
+            _showCaptchaModal.value = false
             ManlCaptchaWebViewManager.cancelCaptcha()
             CaptchaWebViewActivityLauncher.dismiss()
             repeat(30) {
@@ -1051,102 +1103,6 @@ object TunnelManager {
             scope.launch {
                 wgHelper?.reloadTunnel()
             }
-        }
-    }
-
-    private suspend fun handleCaptchaSolve(requestMode: String, redirectUri: String, sessionToken: String) {
-        val ctx = lastContext ?: run {
-            writeCaptchaResult("error:context is null")
-            return
-        }
-        val mode = requestMode.lowercase()
-
-        try {
-            val token = when (mode) {
-                "auto" -> solveSingleAutoWebViewCaptcha(redirectUri, sessionToken)
-                "manual" -> {
-                    updateLog("captcha_wv_step_1", "[КАПЧА WBV] Создание ручного WebView...", 5, false)
-                    ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
-                }
-                else -> {
-                    if (currentCaptchaSolveMethod == "auto") {
-                        solveAutoWebViewCaptcha(ctx, redirectUri, sessionToken)
-                    } else {
-                        updateLog("captcha_wv_step_1", "[КАПЧА WBV] Создание ручного WebView...", 5, false)
-                        ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
-                    }
-                }
-            }
-            updateLog("captcha_wv_step_4", "[КАПЧА WBV] Капча решена ✓", 5, false)
-            writeCaptchaResult(token)
-        } catch (e: IllegalStateException) {
-            val errorMsg = e.message ?: "WV state error"
-            updateLog("captcha_wv_err", "[КАПЧА WBV] $errorMsg", 5, true)
-            writeCaptchaResult("error:$errorMsg")
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            updateLog("captcha_wv_err", "[КАПЧА WBV] Таймаут WebView", 5, true)
-            writeCaptchaResult("error:timeout")
-        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-            updateLog("captcha_wv_err", "[КАПЧА WBV] Отменено", 5, true)
-            writeCaptchaResult("error:cancelled")
-        } catch (e: Exception) {
-            val errorMsg = e.message ?: "${e::class.simpleName}"
-            if (errorMsg != "tunnel stopped") {
-                updateLog("captcha_wv_err", "[КАПЧА WBV] Ошибка — $errorMsg", 5, true)
-            }
-            writeCaptchaResult("error:$errorMsg")
-        }
-
-        updateLog("captcha_wv_step_6", "[КАПЧА WBV] WebView уничтожен", 5, false)
-    }
-
-    private suspend fun solveSingleAutoWebViewCaptcha(
-        redirectUri: String,
-        sessionToken: String
-    ): String {
-        updateLog("captcha_wv_step_1", "[КАПЧА WBV] Авто WebView попытка 10с...", 5, false)
-        return CaptchaWebViewManager.solveCaptchaAsync(redirectUri, sessionToken) { step ->
-            updateLog("captcha_wv_auto_step", "[КАПЧА WBV] $step", 5, false)
-        }
-    }
-
-    private suspend fun solveAutoWebViewCaptcha(
-        ctx: Context,
-        redirectUri: String,
-        sessionToken: String
-    ): String {
-        for (attempt in 1..2) {
-            updateLog("captcha_wv_step_1", "[КАПЧА WBV] Авто WebView попытка $attempt/2...", 5, false)
-            try {
-                return CaptchaWebViewManager.solveCaptchaAsync(redirectUri, sessionToken) { step ->
-                    updateLog("captcha_wv_auto_step", "[КАПЧА WBV] $step", 5, false)
-                }
-            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                updateLog("captcha_wv_timeout_$attempt", "[КАПЧА WBV] Авто таймаут 10с ($attempt/2)", 5, attempt == 2)
-                if (attempt == 2) {
-                    updateLog("captcha_wv_fallback", "[КАПЧА WBV] 2 таймаута авто, открыт ручной WebView", 5, false)
-                    return ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
-                }
-            } catch (e: IllegalStateException) {
-                if (e.message == CaptchaWebViewManager.ERROR_SLIDER_DETECTED) {
-                    updateLog("captcha_wv_fallback", "[КАПЧА WBV] Обнаружен слайдер, открыт ручной WebView", 5, false)
-                    return ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
-                }
-                throw e
-            }
-        }
-        return ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
-    }
-
-    private fun writeCaptchaResult(result: String) {
-        val proc = process
-        if (proc == null || !proc.isAlive) return
-        try {
-            val line = "CAPTCHA_RESULT|$result\n"
-            proc.outputStream.write(line.toByteArray(Charsets.UTF_8))
-            proc.outputStream.flush()
-        } catch (e: Exception) {
-            updateLog("captcha_write_err", "[КАПЧА] Ошибка записи: ${e.message}", 200, true)
         }
     }
 

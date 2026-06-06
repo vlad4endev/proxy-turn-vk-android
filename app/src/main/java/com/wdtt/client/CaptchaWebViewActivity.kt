@@ -269,6 +269,19 @@ class CaptchaWebViewActivity : ComponentActivity() {
                                                     }
                                                 }
 
+                                                override fun shouldInterceptRequest(
+                                                    view: WebView?,
+                                                    request: android.webkit.WebResourceRequest?
+                                                ): android.webkit.WebResourceResponse? {
+                                                    val reqUrl = request?.url?.toString() ?: ""
+                                                    if (reqUrl.contains("local-captcha-result")) {
+                                                        // Go-сервер получил токен через sendBeacon/fetch —
+                                                        // это не навигация, ловим POST здесь и закрываем окно.
+                                                        runOnUiThread { finishAfterCaptcha() }
+                                                    }
+                                                    return super.shouldInterceptRequest(view, request)
+                                                }
+
                                                 override fun onReceivedSslError(
                                                     view: WebView,
                                                     handler: android.webkit.SslErrorHandler,

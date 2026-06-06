@@ -3,8 +3,10 @@ package yandex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -19,6 +21,12 @@ const (
 	telemostConfHost = "cloud-api.yandex.ru"
 	requestTimeout   = 20 * time.Second
 	wsTimeout        = 15 * time.Second
+	// overallTimeout ограничивает весь этап авторизации Яндекс (HTTP+WS).
+	// При превышении возвращаем понятную пользователю ошибку.
+	overallTimeout = 30 * time.Second
+
+	// errYandexTimeout — текст, который Android показывает пользователю.
+	errYandexTimeout = "Не удалось подключиться к серверу Яндекс. Проверьте ссылку и попробуйте снова."
 )
 
 type conferenceResponse struct {
@@ -86,6 +94,13 @@ type wssResponse struct {
 
 func fetchTurnCreds(ctx context.Context, hash string, streamID int, log logx.Logger) (user, pass, addr string, err error) {
 	l := logx.OrNop(log)
+
+	// Жёсткий общий дедлайн на весь этап авторизации (HTTP + WebSocket),
+	// чтобы запрос не «висел» дольше overallTimeout и пользователь получал
+	// понятную ошибку вместо вечной «Авторизации».
+	ctx, cancel := context.WithTimeout(ctx, overallTimeout)
+	defer cancel()
+
 	path := fmt.Sprintf(
 		"/telemost_front/v2/telemost/conferences/https%%3A%%2F%%2Ftelemost.yandex.ru%%2Fj%%2F%s/connection?next_gen_media_platform_allowed=false",
 		hash,
@@ -106,30 +121,40 @@ func fetchTurnCreds(ctx context.Context, hash string, streamID int, log logx.Log
 	req.Header.Set("Client-Instance-Id", uuid.NewString())
 
 	l.Infof("[STREAM %d] [Yandex] Requesting Telemost conference…", streamID)
+	// DEBUG: точный URL запроса к Яндекс API (можно убрать после диагностики).
+	l.Infof("[STREAM %d] [Yandex] DEBUG GET %s", streamID, endpoint)
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", "", err
+		if isDeadline(ctx, err) {
+			return "", "", "", fmt.Errorf("[Yandex] timeout: %s", errYandexTimeout)
+		}
+		return "", "", "", fmt.Errorf("[Yandex] запрос не выполнен: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
-		return "", "", "", readErr
+		if isDeadline(ctx, readErr) {
+			return "", "", "", fmt.Errorf("[Yandex] timeout: %s", errYandexTimeout)
+		}
+		return "", "", "", fmt.Errorf("[Yandex] чтение ответа: %w", readErr)
 	}
+	// DEBUG: HTTP-статус и первые 500 символов тела ответа Яндекс API.
+	l.Infof("[STREAM %d] [Yandex] DEBUG status=%s body[:500]=%s", streamID, resp.Status, bodyPreview(body, 500))
 	if resp.StatusCode != http.StatusOK {
 		bodyStr := string(body)
 		if IsRealCaptchaChallenge(bodyStr) {
-			return "", "", "", fmt.Errorf("yandex captcha required")
+			return "", "", "", fmt.Errorf("[Yandex] captcha required")
 		}
-		return "", "", "", fmt.Errorf("GetConference: status=%s body=%s", resp.Status, bodyStr)
+		return "", "", "", fmt.Errorf("[Yandex] GetConference: status=%s body=%s", resp.Status, bodyPreview(body, 500))
 	}
 
 	var conf conferenceResponse
 	if err := json.Unmarshal(body, &conf); err != nil {
-		return "", "", "", fmt.Errorf("decode conf: %w", err)
+		return "", "", "", fmt.Errorf("[Yandex] decode conf: %w", err)
 	}
 	if conf.ClientConfiguration.MediaServerURL == "" {
-		return "", "", "", fmt.Errorf("missing media_server_url")
+		return "", "", "", fmt.Errorf("[Yandex] в ответе нет media_server_url — %s", errYandexTimeout)
 	}
 
 	displayName := randomDisplayName()
@@ -156,7 +181,10 @@ func fetchTurnCreds(ctx context.Context, hash string, streamID int, log logx.Log
 	dialer := websocket.Dialer{HandshakeTimeout: wsTimeout}
 	conn, wsResp, err := dialer.DialContext(ctx, conf.ClientConfiguration.MediaServerURL, wsHeaders)
 	if err != nil {
-		return "", "", "", fmt.Errorf("ws dial: %w", err)
+		if isDeadline(ctx, err) {
+			return "", "", "", fmt.Errorf("[Yandex] timeout: %s", errYandexTimeout)
+		}
+		return "", "", "", fmt.Errorf("[Yandex] ws dial: %w", err)
 	}
 	if wsResp != nil && wsResp.Body != nil {
 		defer wsResp.Body.Close()
@@ -164,20 +192,23 @@ func fetchTurnCreds(ctx context.Context, hash string, streamID int, log logx.Log
 	defer conn.Close()
 
 	if err := conn.WriteJSON(hello); err != nil {
-		return "", "", "", fmt.Errorf("ws write: %w", err)
+		return "", "", "", fmt.Errorf("[Yandex] ws write: %w", err)
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(wsTimeout))
 
 	for {
 		select {
 		case <-ctx.Done():
-			return "", "", "", ctx.Err()
+			return "", "", "", fmt.Errorf("[Yandex] timeout: %s", errYandexTimeout)
 		default:
 		}
 
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			return "", "", "", fmt.Errorf("ws read: %w", err)
+			if isDeadline(ctx, err) {
+				return "", "", "", fmt.Errorf("[Yandex] timeout: %s", errYandexTimeout)
+			}
+			return "", "", "", fmt.Errorf("[Yandex] ws read: %w", err)
 		}
 
 		var ack wssAck
@@ -204,6 +235,35 @@ func fetchTurnCreds(ctx context.Context, hash string, streamID int, log logx.Log
 			}
 		}
 	}
+}
+
+// bodyPreview возвращает первые n символов тела ответа в одной строке
+// (переводы строк схлопнуты), безопасно обрезая по рунам для лог-вывода.
+func bodyPreview(body []byte, n int) string {
+	s := strings.TrimSpace(string(body))
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return string(r)
+}
+
+// isDeadline сообщает, вызвана ли ошибка истечением нашего общего дедлайна
+// (overallTimeout) или таймаутом сети.
+func isDeadline(ctx context.Context, err error) bool {
+	if ctx.Err() == context.DeadlineExceeded {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	return false
 }
 
 func defaultCapabilities() map[string][]string {

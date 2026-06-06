@@ -7,7 +7,11 @@ import (
 )
 
 var (
-	telemostJoinRE = regexp.MustCompile(`(?i)(?:telemost/j/|/j/)([A-Za-z0-9_\-]+)`)
+	// Поддерживаемые формы room hash:
+	//   .../j/HASH            (telemost.yandex.ru/j/, ya.ru/telemost/j/)
+	//   .../calls/HASH        (новый короткий формат ya.ru/calls/HASH)
+	// Хвост ?lang=ru/#... срезается в cleanTail.
+	telemostJoinRE = regexp.MustCompile(`(?i)(?:telemost/j/|/j/|telemost/calls/|/calls/)([A-Za-z0-9_\-]+)`)
 	checkboxRE     = regexp.MustCompile(`(?i)<input[^>]+type\s*=\s*["']checkbox["']`)
 )
 
@@ -34,9 +38,15 @@ func NormalizeLink(raw string) string {
 		"https://telemost.yandex.ru/j/",
 		"http://telemost.yandex.ru/j/",
 		"telemost.yandex.ru/j/",
+		"https://telemost.yandex.ru/calls/",
+		"http://telemost.yandex.ru/calls/",
+		"telemost.yandex.ru/calls/",
 		"https://ya.ru/telemost/j/",
 		"http://ya.ru/telemost/j/",
 		"ya.ru/telemost/j/",
+		"https://ya.ru/calls/",
+		"http://ya.ru/calls/",
+		"ya.ru/calls/",
 	}
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(lower, prefix) {

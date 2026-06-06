@@ -20,6 +20,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -63,6 +65,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.YandexParser
 import com.wdtt.client.LinkProvider
 import com.wdtt.client.ConnectionStage
+import com.wdtt.client.NetworkTransport
+import com.wdtt.client.rememberNetworkTransport
 import com.wdtt.client.ServerConfig
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
@@ -74,6 +78,7 @@ import com.wdtt.client.ui.theme.ScreenSize
 import com.wdtt.client.ui.theme.adaptiveButtonSize
 import com.wdtt.client.ui.theme.adaptivePadding
 import com.wdtt.client.ui.theme.adaptiveScreenInsets
+import com.wdtt.client.ui.components.CaptchaModal
 import com.wdtt.client.ui.theme.readableSp
 import com.wdtt.client.ui.theme.rememberScreenSize
 import kotlinx.coroutines.Dispatchers
@@ -108,7 +113,12 @@ fun TunnelTab() {
     val connectionStage by TunnelManager.connectionStage.collectAsStateWithLifecycle()
     val stats by TunnelManager.stats.collectAsStateWithLifecycle()
     val savedTunnelMode by store.tunnelMode.collectAsStateWithLifecycle(initialValue = "whitelist")
+    val autoSwitch by store.tunnelModeAutoSwitch.collectAsStateWithLifecycle(initialValue = true)
+    val manualOverride by store.tunnelModeManualOverride.collectAsStateWithLifecycle(initialValue = false)
+    val networkTransport by rememberNetworkTransport()
+    var lastNetworkTransport by remember { mutableStateOf<NetworkTransport?>(null) }
     val runtimeTunnelMode by TunnelManager.tunnelMode.collectAsStateWithLifecycle()
+    val showCaptcha by TunnelManager.showCaptchaModal.collectAsStateWithLifecycle()
     val isSpeedMode = savedTunnelMode == "speed" ||
         runtimeTunnelMode == TunnelMode.SPEED
 
@@ -210,6 +220,28 @@ fun TunnelTab() {
     LaunchedEffect(Unit) {
         val saved = store.wdttLink.first()
         if (saved.isNotBlank()) vkLink = saved
+    }
+
+    LaunchedEffect(autoSwitch, networkTransport, tunnelRunning, isStarting, manualOverride) {
+        if (tunnelRunning || isStarting || !autoSwitch) {
+            lastNetworkTransport = networkTransport
+            return@LaunchedEffect
+        }
+
+        val previous = lastNetworkTransport
+        lastNetworkTransport = networkTransport
+        val targetMode = networkTransport.recommendedTunnelMode()
+        val transportChanged = previous != null && previous != networkTransport
+
+        when {
+            transportChanged -> store.applyAutoTunnelMode(targetMode)
+            previous == null && !manualOverride -> {
+                val current = store.tunnelMode.first()
+                if (current != targetMode) {
+                    store.applyAutoTunnelMode(targetMode)
+                }
+            }
+        }
     }
 
     LaunchedEffect(vkLink) {
@@ -408,6 +440,7 @@ fun TunnelTab() {
     val showPowerGlow = screenSize != ScreenSize.COMPACT || !metrics.isCompactHeight
     val glowSize = powerSize + 44.dp
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -427,8 +460,19 @@ fun TunnelTab() {
         TunnelModeSwitch(
             selectedMode = savedTunnelMode,
             enabled = !tunnelRunning && !isStarting,
+            autoSwitchEnabled = autoSwitch,
+            manualOverride = manualOverride,
+            networkTransport = networkTransport,
             onModeChange = { mode ->
-                scope.launch { store.saveTunnelMode(mode) }
+                scope.launch { store.saveTunnelModeManual(mode) }
+            },
+            onAutoSwitchChange = { enabled ->
+                scope.launch {
+                    store.saveTunnelModeAutoSwitch(enabled)
+                    if (enabled && !tunnelRunning && !isStarting) {
+                        store.applyAutoTunnelMode(networkTransport.recommendedTunnelMode())
+                    }
+                }
             }
         )
 
@@ -1135,20 +1179,51 @@ fun TunnelTab() {
             }
         }
     }
+
+        AnimatedVisibility(
+            visible = showCaptcha,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(animationSpec = tween(300)) +
+                slideInVertically(
+                    initialOffsetY = { it / 4 },
+                    animationSpec = tween(300)
+                ),
+            exit = fadeOut(animationSpec = tween(200)) +
+                slideOutVertically(
+                    targetOffsetY = { it / 4 },
+                    animationSpec = tween(200)
+                )
+        ) {
+            CaptchaModal(
+                isVisible = showCaptcha,
+                onDismiss = { TunnelManager.dismissCaptchaModal() },
+                onCaptchaSolved = { TunnelManager.onCaptchaSolved() }
+            )
+        }
+    }
 }
 
 @Composable
 private fun TunnelModeSwitch(
     selectedMode: String,
     enabled: Boolean,
+    autoSwitchEnabled: Boolean,
+    manualOverride: Boolean,
+    networkTransport: NetworkTransport,
     onModeChange: (String) -> Unit,
+    onAutoSwitchChange: (Boolean) -> Unit,
 ) {
     val isSpeed = selectedMode == "speed"
+    val autoHint = when (networkTransport) {
+        NetworkTransport.WIFI -> "Wi‑Fi → скоростной"
+        NetworkTransport.CELLULAR -> "LTE → белый список"
+        NetworkTransport.UNKNOWN -> "Wi‑Fi → скоростной, LTE → белый список"
+    }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.5f),
+            .alpha(if (enabled || autoSwitchEnabled) 1f else 0.5f),
         shape = SkyflowShapes.Card,
         color = SkyflowColors.GlassSurface,
         border = SkyflowBorders.Glass
@@ -1157,11 +1232,54 @@ private fun TunnelModeSwitch(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                "РЕЖИМ ПОДКЛЮЧЕНИЯ",
-                style = SkyflowTextStyles.labelUppercase,
-                color = SkyflowColors.TextMuted
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "РЕЖИМ ПОДКЛЮЧЕНИЯ",
+                    style = SkyflowTextStyles.labelUppercase,
+                    color = SkyflowColors.TextMuted
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        "Авто",
+                        fontSize = readableSp(10f),
+                        color = if (autoSwitchEnabled) SkyflowColors.AccentLight else SkyflowColors.TextMuted
+                    )
+                    Switch(
+                        checked = autoSwitchEnabled,
+                        onCheckedChange = onAutoSwitchChange,
+                        modifier = Modifier.height(24.dp),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = SkyflowColors.Connected,
+                            checkedTrackColor = SkyflowColors.Connected.copy(alpha = 0.35f),
+                            uncheckedThumbColor = SkyflowColors.TextMuted,
+                            uncheckedTrackColor = SkyflowColors.Border
+                        )
+                    )
+                }
+            }
+            if (autoSwitchEnabled) {
+                Text(
+                    "Авто: $autoHint",
+                    fontSize = readableSp(10f),
+                    color = SkyflowColors.TextSecondary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (manualOverride && autoSwitchEnabled) {
+                Text(
+                    "Выбрано вручную — авто снова при смене Wi‑Fi/LTE",
+                    fontSize = readableSp(10f),
+                    color = SkyflowColors.WarnColor,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
