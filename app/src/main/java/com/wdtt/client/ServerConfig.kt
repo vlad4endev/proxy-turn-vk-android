@@ -15,6 +15,7 @@ object ServerConfig {
 PrivateKey = WDa5z/k0Z4CR+92guVwyGQ41+9VqImg07HsNK4EunEo=
 Address = 10.0.0.2/32
 DNS = 1.1.1.1
+MTU = 1280
 
 [Peer]
 PublicKey = WPfiQbTLCgE+GJkKaMbtQvw6WVXMWb/w0yKzSw9rbUM=

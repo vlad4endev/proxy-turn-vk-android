@@ -626,7 +626,7 @@ object TunnelManager {
                     } else if (collectingConfig) {
                         if (line.contains("╚")) {
                             collectingConfig = false
-                            val configStr = configBuilder.toString().trim()
+                            val configStr = WireGuardHelper.ensureWireGuardMtu(configBuilder.toString().trim())
                             if (configStr.isNotEmpty()) {
                                 config.value = configStr
                             }
@@ -658,7 +658,7 @@ object TunnelManager {
     private fun launchWireGuardIfNeeded() {
         if (wireGuardStarted || !running.value) return
         wireGuardStarted = true
-        val configStr = ServerConfig.WG_CONFIG.trim()
+        val configStr = WireGuardHelper.ensureWireGuardMtu(ServerConfig.WG_CONFIG.trim())
         config.value = configStr
         wireGuardExpectedAtMs = System.currentTimeMillis()
         markConnectedIfNeeded()

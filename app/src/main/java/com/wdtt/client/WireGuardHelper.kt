@@ -21,9 +21,33 @@ class WireGuardHelper(context: Context) {
     private val appContext = context.applicationContext
     private val backend = (appContext as WdttApplication).getBackend(context)
 
-    private companion object {
-        val wgMutex = Mutex()
-        var sharedTunnel: WgTunnel? = null
+    companion object {
+        private val wgMutex = Mutex()
+        private var sharedTunnel: WgTunnel? = null
+
+        /** Подставляет или заменяет MTU в секции [Interface] (TURN/DTLS накладные расходы). */
+        fun ensureWireGuardMtu(config: String, mtu: Int = 1280): String {
+            val mtuLine = "MTU = $mtu"
+            val lines = config.lines().toMutableList()
+            val interfaceIdx = lines.indexOfFirst { it.trim().equals("[Interface]", ignoreCase = true) }
+            if (interfaceIdx < 0) return config
+
+            val peerIdx = lines.indexOfFirst { it.trim().equals("[Peer]", ignoreCase = true) }
+            val sectionEnd = if (peerIdx >= 0) peerIdx else lines.size
+
+            for (i in interfaceIdx + 1 until sectionEnd) {
+                if (lines[i].trim().startsWith("MTU", ignoreCase = true)) {
+                    lines[i] = mtuLine
+                    return lines.joinToString("\n").trimEnd()
+                }
+            }
+
+            val insertAt = (interfaceIdx + 1 until sectionEnd)
+                .lastOrNull { lines[it].trim().isNotEmpty() && !lines[it].trim().startsWith("[") }
+                ?.plus(1) ?: (interfaceIdx + 1)
+            lines.add(insertAt, mtuLine)
+            return lines.joinToString("\n").trimEnd()
+        }
     }
 
     class WgTunnel : Tunnel {
@@ -53,7 +77,8 @@ class WireGuardHelper(context: Context) {
                 delay(150)
             }
 
-            val parsedConfig = Config.parse(ByteArrayInputStream(configString.toByteArray(Charsets.UTF_8)))
+            val normalizedConfig = ensureWireGuardMtu(configString)
+            val parsedConfig = Config.parse(ByteArrayInputStream(normalizedConfig.toByteArray(Charsets.UTF_8)))
 
             val builder = Interface.Builder()
                 .parseAddresses(parsedConfig.`interface`.addresses.joinToString(", ") { it.toString() })
@@ -64,13 +89,7 @@ class WireGuardHelper(context: Context) {
             if (parsedConfig.`interface`.listenPort.isPresent) {
                 builder.parseListenPort(parsedConfig.`interface`.listenPort.get().toString())
             }
-            if (parsedConfig.`interface`.mtu.isPresent) {
-                val serverMtu = parsedConfig.`interface`.mtu.get()
-                // Используем серверное значение, но не менее 1280 для мобильных сетей
-                builder.parseMtu(serverMtu.coerceAtLeast(1280).toString())
-            } else {
-                builder.parseMtu("1280")
-            }
+            builder.parseMtu("1280")
             builder.parsePrivateKey(parsedConfig.`interface`.keyPair.privateKey.toBase64())
 
             // 1. Пакеты, которые всегда исключаются (наше приложение, ВК)
