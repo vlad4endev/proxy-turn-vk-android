@@ -2,6 +2,7 @@ package com.wdtt.client
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -165,6 +166,41 @@ object TunnelManager {
     fun onCaptchaSolved() {
         _showCaptchaModal.value = false
         updateLog("captcha_done", "[КАПЧА] Решена ✓", 5, false)
+    }
+
+    // ── Запись в stdin Go-процесса (для CAPTCHA_RESULT) ──────────────────────
+    private fun writeToProcessStdin(text: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val out = process?.outputStream ?: return@launch
+                out.write((text.trimEnd() + "\n").toByteArray(Charsets.UTF_8))
+                out.flush()
+            } catch (e: Exception) {
+                Log.w("TunnelManager", "writeToProcessStdin failed: ${e.message}")
+            }
+        }
+    }
+
+    // ── Обработка CAPTCHA_SOLVE от Go: показывает WebView пользователю ────────
+    private fun handleCaptchaSolveRequest(redirectUri: String, sessionToken: String) {
+        val ctx = lastContext ?: return
+        connectionStage.value = ConnectionStage.VK_CAPTCHA
+        connectionHint.value = "Подтвердите — Я не робот"
+        updateLog("captcha_webview", "[КАПЧА] VK запросил проверку — реши вручную", 5, false)
+
+        scope.launch {
+            try {
+                val token = ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
+                writeToProcessStdin("CAPTCHA_RESULT|$token")
+                updateLog("captcha_done", "[КАПЧА] Решена ✓", 5, false)
+            } catch (e: CancellationException) {
+                writeToProcessStdin("CAPTCHA_RESULT|error:cancelled")
+            } catch (e: Exception) {
+                val msg = e.message?.take(80)?.replace("|", "-") ?: "failed"
+                writeToProcessStdin("CAPTCHA_RESULT|error:$msg")
+                updateLog("captcha_failed", "[КАПЧА] Не решена: ${e.message?.take(40)}", 5, true)
+            }
+        }
     }
 
     fun clearUnreadErrors() {
@@ -560,6 +596,13 @@ object TunnelManager {
                     }
                 }
 
+                // captchaMode "wv" = показывать пользователю WebView с реальной страницей капчи.
+                // Если не задано — используем "wv" по умолчанию (лучше чем "auto" который зависает).
+                val effectiveCaptchaMode = when (params.captchaMode) {
+                    "rjs" -> "rjs"
+                    else -> "wv"
+                }
+
                 val cmd = mutableListOf(
                     binaryPath,
                     "-peer", params.peer,
@@ -568,7 +611,8 @@ object TunnelManager {
                     "-obf-profile", "rtpopus",
                     "-obf-key", ServerConfig.OBF_KEY,
                     "-provider", providerFlag,
-                    "-n", totalWorkers.toString()
+                    "-n", totalWorkers.toString(),
+                    "-captcha-mode", effectiveCaptchaMode
                 )
 
                 val pb = ProcessBuilder(cmd)
@@ -619,6 +663,20 @@ object TunnelManager {
                         mismatchCount = 0
                         currentHashErrorCount = 0
                         lastResetTime = now
+                    }
+
+                    // ── CAPTCHA_SOLVE: Go просит пользователя решить капчу ──────────────
+                    if (line.startsWith("CAPTCHA_SOLVE|")) {
+                        val parts = line.split("|", limit = 4)
+                        if (parts.size >= 4) {
+                            val redirectUri = parts[2]
+                            val sessionToken = parts[3]
+                            if (redirectUri.isNotBlank() && sessionToken.isNotBlank()) {
+                                handleCaptchaSolveRequest(redirectUri, sessionToken)
+                                return@forEachLine
+                            }
+                        }
+                        return@forEachLine
                     }
 
                     val msgPrefixReplaced = line.replace(Regex("^\\d{4}/\\d{2}/\\d{2}\\s\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?\\s"), "")
