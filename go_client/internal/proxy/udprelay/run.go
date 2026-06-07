@@ -40,15 +40,6 @@ type Params struct {
 	ObfKey       []byte
 	GetCreds     GetCredsFunc
 	ClientID     string
-	// Password — если не пуст, первым пакетом шлётся GETCONF вместо бинарного
-	// ClientID. Сервер выдаёт уникальный WireGuard-конфиг (приватный ключ + IP)
-	// для этого deviceID. Go-клиент печатает конфиг между ╔WireGuard╗…╚══╝,
-	// TunnelManager разбирает его и использует вместо статического WG_CONFIG.
-	Password string
-	// Listen — локальный addr:port WireGuard-слушателя (напр. "127.0.0.1:9000").
-	// Порт извлекается и передаётся серверу в GETCONF как clientPort, чтобы
-	// buildClientConfig вернул правильный Endpoint в WireGuard-конфиге.
-	Listen string
 }
 
 // streamStartBarrier — максимум, который стримы 2..N ждут прогрева кэша

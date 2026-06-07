@@ -568,12 +568,7 @@ object TunnelManager {
                     "-obf-profile", "rtpopus",
                     "-obf-key", ServerConfig.OBF_KEY,
                     "-provider", providerFlag,
-                    "-n", totalWorkers.toString(),
-                    // ── GETCONF: каждое устройство получает уникальный WireGuard-конфиг ──
-                    // Сервер выдаёт уникальный приватный ключ и IP (10.66.66.X) для
-                    // deviceID клиента. Решает «бардак» в много-пользовательском режиме —
-                    // у каждого пользователя своя VPN-идентификация.
-                    "-password", ServerConfig.PASSWORD
+                    "-n", totalWorkers.toString()
                 )
 
                 val pb = ProcessBuilder(cmd)

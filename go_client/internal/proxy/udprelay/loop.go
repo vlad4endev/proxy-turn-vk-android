@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -153,73 +152,13 @@ func oneDTLS(ctx context.Context, deps *Deps, params *Params, peer *net.UDPAddr,
 	}()
 	deps.log().Infof("[STREAM %d] Established DTLS connection", streamID)
 
-	// ── Первый пакет: GETCONF (уникальный WG-конфиг) или бинарный ClientID ──
-	// Если задан пароль — шлём GETCONF: сервер выдаёт уникальный WireGuard-
-	// конфиг (приватный ключ + IP) для этого устройства. Go-клиент печатает
-	// конфиг между ╔WireGuard╗…╚══╝, TunnelManager подхватывает его вместо
-	// статического WG_CONFIG. Это решает проблему «бардака» в много-
-	// пользовательском режиме — у каждого своя IP и ключи.
-	if params.Password != "" {
-		// Извлечь порт из "127.0.0.1:9000" → "9000"
-		listenPort := "9000"
-		if params.Listen != "" {
-			if _, p, splitErr := net.SplitHostPort(params.Listen); splitErr == nil && p != "" {
-				listenPort = p
-			}
-		}
-		getconfMsg := fmt.Sprintf("GETCONF:%s|%s|%s", listenPort, params.ClientID, params.Password)
-		dtlsConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if _, wErr := dtlsConn.Write([]byte(getconfMsg)); wErr != nil {
-			dtlsConn.SetWriteDeadline(time.Time{})
-			return fmt.Errorf("getconf send: %w", wErr)
-		}
-		dtlsConn.SetWriteDeadline(time.Time{})
-
-		// Читаем ответ сервера (WG-конфиг или отказ)
-		gcBuf := make([]byte, 4096)
-		dtlsConn.SetReadDeadline(time.Now().Add(15 * time.Second))
-		gcN, gcErr := dtlsConn.Read(gcBuf)
-		dtlsConn.SetReadDeadline(time.Time{})
-		if gcErr != nil {
-			return fmt.Errorf("getconf recv: %w", gcErr)
-		}
-		resp := strings.TrimSpace(string(gcBuf[:gcN]))
-
-		if strings.HasPrefix(resp, "DENIED:") || resp == "NOCONF" {
-			return fmt.Errorf("server rejected GETCONF: %s", resp)
-		}
-
-		if strings.HasPrefix(resp, "[Interface]") {
-			// Печатаем WG-конфиг только для стрима 1 (okchan != nil),
-			// чтобы TunnelManager получил конфиг ровно один раз.
-			// Формат должен совпадать с тем, что ожидает TunnelManager:
-			//   строка с ╔ + WireGuard  → начало блока
-			//   строки с ║              → контент (TunnelManager делает replace("║","").trim())
-			//   строка с ╚              → конец блока
-			if okchan != nil {
-				deps.log().Infof("╔══ WireGuard ══╗")
-				for _, cfgLine := range strings.Split(resp, "\n") {
-					deps.log().Infof("║ %s", cfgLine)
-				}
-				deps.log().Infof("╚══╝")
-			}
-		}
-
-		// Сигналим серверу о готовности перейти в relay-режим
-		dtlsConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		dtlsConn.Write([]byte("READY")) //nolint:errcheck
-		dtlsConn.SetWriteDeadline(time.Time{})
-
-		// Читаем READY_OK (игнорируем содержимое, просто синхронизируемся)
-		dtlsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		dtlsConn.Read(gcBuf) //nolint:errcheck
-		dtlsConn.SetReadDeadline(time.Time{})
-	} else {
-		// Fallback: статический конфиг, бинарный ClientID как прежде
-		// -clients-file на сервере решает только, проверять ли ID по allowlist.
-		if err := clientsdb.WriteClientID(dtlsConn, params.ClientID); err != nil {
-			return fmt.Errorf("failed to write client ID: %w", err)
-		}
+	// Client ID шлётся всегда (первой DTLS app-record); сервер всегда читает.
+	// free-turn-proxy (ghcr.io/samosvalishe/free-turn-proxy:latest) — чистый
+	// DTLS-релей без application-layer протокола: он берёт первый пакет и
+	// пересылает в WireGuard-backend как есть. WireGuard отбросит его как
+	// невалидный WG-пакет. Дальше — двусторонний relay WG-трафика.
+	if err := clientsdb.WriteClientID(dtlsConn, params.ClientID); err != nil {
+		return fmt.Errorf("failed to write client ID: %w", err)
 	}
 
 	if okchan != nil {
