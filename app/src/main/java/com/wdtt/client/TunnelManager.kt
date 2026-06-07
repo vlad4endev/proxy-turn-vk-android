@@ -101,6 +101,7 @@ object TunnelManager {
     private var tun2socksHelper: Tun2SocksHelper? = null
     @Volatile
     private var wireGuardStarted = false
+    val wireGuardUp = MutableStateFlow(false)
 
     // Error counters for circuit breaker
     private var floodCount = 0
@@ -971,6 +972,26 @@ object TunnelManager {
         }
     }
 
+    private suspend fun refreshWireGuardUp() {
+        try {
+            wireGuardUp.value = wgHelper?.isTunnelUp() ?: false
+        } catch (e: Exception) {
+            Log.w("TunnelManager", "Failed to check WireGuard status: ${e.message}")
+            wireGuardUp.value = false
+        }
+    }
+
+    private fun checkWireGuardReadiness() {
+        // ── Fallback: если WireGuard поднялся успешно, но логи не пришли ──
+        if (wireGuardStarted && wireGuardUp.value && connectionStage.value != ConnectionStage.VPN_READY) {
+            Log.d("TunnelManager", "WireGuard is up, marking as VPN_READY (fallback check)")
+            connectionStage.value = ConnectionStage.VPN_READY
+            running.value = true
+            markConnectedIfNeeded()
+            updateLog("wg_ready_fallback", "[VPN] WireGuard готов (проверка статуса) ✓", 2, false)
+        }
+    }
+
     private fun launchWireGuardIfNeeded() {
         android.util.Log.d("TunnelManager", "launchWireGuardIfNeeded called, wireGuardStarted=$wireGuardStarted, running=${running.value}")
         if (wireGuardStarted || !running.value) return
@@ -1040,9 +1061,25 @@ object TunnelManager {
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
             var zeroWorkersSince = 0L
+            var wgCheckCounter = 0
             while (isActive && running.value) {
-                delay(30_000)
+                delay(5_000)  // Проверяем каждые 5 секунд
                 if (!isActive || !running.value) break
+
+                // ── Проверка WireGuard статуса каждые 5 сек ──
+                if (wireGuardStarted) {
+                    try {
+                        refreshWireGuardUp()
+                        checkWireGuardReadiness()
+                    } catch (e: Exception) {
+                        Log.w("TunnelManager", "WireGuard status check failed: ${e.message}")
+                    }
+                }
+
+                // ── Основная логика watchdog каждые 30 сек ──
+                wgCheckCounter++
+                if (wgCheckCounter < 6) continue  // Каждые 6 * 5сек = 30сек
+                wgCheckCounter = 0
 
                 val proc = process
                 if (proc == null || !proc.isAlive) {
@@ -1220,6 +1257,7 @@ object TunnelManager {
         running.value = false
         activeWorkers.value = 0
         wireGuardStarted = false
+        wireGuardUp.value = false
         wireGuardExpectedAtMs = 0L
         connectedSince.value = 0L
         connectionStage.value = ConnectionStage.IDLE
@@ -1246,6 +1284,7 @@ object TunnelManager {
             running.value = false
             activeWorkers.value = 0
             wireGuardStarted = false
+            wireGuardUp.value = false
             connectedSince.value = 0L
             currentParams = null
             _showCaptchaModal.value = false
