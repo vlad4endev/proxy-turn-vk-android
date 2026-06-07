@@ -90,18 +90,25 @@ object TunnelManager {
     private const val YANDEX_AUTH_TIMEOUT_MSG =
         "Не удалось подключиться к серверу Яндекс. Проверьте ссылку и попробуйте снова."
 
-    private var process: Process? = null
+    // ── ОБЩИЕ ────────────────────────────────────────────────────────────────
     private var readerJob: Job? = null
     private var watchdogJob: Job? = null
     private var yandexAuthTimeoutJob: Job? = null
     @Volatile
     private var yandexCredsOk = false
+
+    // ── WHITELIST-СТЕК: VK TURN → Go-клиент → WireGuard ─────────────────────
+    // Изолирован от Speed-стека. Использует process + wgHelper.
+    private var process: Process? = null
     private var wgHelper: WireGuardHelper? = null
-    private var xrayHelper: XrayHelper? = null
-    private var tun2socksHelper: Tun2SocksHelper? = null
     @Volatile
     private var wireGuardStarted = false
     val wireGuardUp = MutableStateFlow(false)
+
+    // ── SPEED-СТЕК: VLESS → Xray → tun2socks → TUN ───────────────────────────
+    // Изолирован от Whitelist-стека. Никогда не трогает process/wgHelper.
+    private var xrayHelper: XrayHelper? = null
+    private var tun2socksHelper: Tun2SocksHelper? = null
 
     // Error counters for circuit breaker
     private var floodCount = 0
@@ -256,6 +263,7 @@ object TunnelManager {
             processStartedAtMs = 0L
             wireGuardExpectedAtMs = 0L
             wireGuardStarted = false
+            wireGuardUp.value = false
             yandexCredsOk = false
             connectedSince.value = 0L
             lastActiveAtMs = 0L
@@ -266,17 +274,19 @@ object TunnelManager {
             forceRegenerateUA = false
         }
         
-        wgHelper = WireGuardHelper(appContext)
-        xrayHelper = XrayHelper(appContext)
         val mode = TunnelMode.from(params.tunnelMode)
         tunnelMode.value = mode
 
         scope.launch {
             try {
                 if (mode == TunnelMode.SPEED) {
+                    // ── Speed-стек: только Xray + tun2socks, WireGuard не трогаем ──
+                    xrayHelper = XrayHelper(appContext)
                     startSpeedMode(appContext, params)
                     return@launch
                 }
+                // ── Whitelist-стек: только Go-клиент + WireGuard, Xray не трогаем ──
+                wgHelper = WireGuardHelper(appContext)
                 startWhitelistMode(appContext, params, isSwitching)
             } catch (e: Exception) {
                 updateLog("critical_start_error", "Критическая ошибка запуска: ${e.message}", 99, true)
@@ -1252,25 +1262,31 @@ object TunnelManager {
     fun stop() {
         startInProgress = false
         transportRestartInProgress = false
+        val stoppingMode = tunnelMode.value
         scope.launch(Dispatchers.IO) {
-            try {
-                tun2socksHelper?.stop()
-                tun2socksHelper = null
-            } catch (e: Exception) {
-                Log.e("TunnelManager", "Failed to stop tun2socks: ${e.message}")
-            }
-            try {
-                xrayHelper?.stop()
-            } catch (e: Exception) {
-                Log.e("TunnelManager", "Failed to stop xray: ${e.message}")
-            }
-            try {
-                wgHelper?.stopTunnel()
-            } catch (e: Exception) {
-                Log.e("TunnelManager", "Failed to stop wireguard: ${e.message}")
+            if (stoppingMode == TunnelMode.SPEED) {
+                // ── Останавливаем только Speed-стек (Xray + tun2socks) ──
+                try {
+                    tun2socksHelper?.stop()
+                    tun2socksHelper = null
+                } catch (e: Exception) {
+                    Log.e("TunnelManager", "Failed to stop tun2socks: ${e.message}")
+                }
+                try {
+                    xrayHelper?.stop()
+                } catch (e: Exception) {
+                    Log.e("TunnelManager", "Failed to stop xray: ${e.message}")
+                }
+            } else {
+                // ── Останавливаем только Whitelist-стек (WireGuard + Go-клиент) ──
+                try {
+                    wgHelper?.stopTunnel()
+                } catch (e: Exception) {
+                    Log.e("TunnelManager", "Failed to stop wireguard: ${e.message}")
+                }
             }
         }
-        killProcess()
+        killProcess()   // Go-клиент — только whitelist, но killProcess безопасен при отсутствии process
         running.value = false
         activeWorkers.value = 0
         wireGuardStarted = false
@@ -1290,13 +1306,16 @@ object TunnelManager {
     }
 
     suspend fun stopAndWait() {
-        withContext(Dispatchers.Main) {
-            tun2socksHelper?.stop()
-            tun2socksHelper = null
-            xrayHelper?.stop()
-            wgHelper?.stopTunnel()
-        }
+        val stoppingMode = tunnelMode.value
         withContext(Dispatchers.IO) {
+            if (stoppingMode == TunnelMode.SPEED) {
+                // ── Speed-стек ──
+                try { tun2socksHelper?.stop(); tun2socksHelper = null } catch (_: Exception) {}
+                try { xrayHelper?.stop() } catch (_: Exception) {}
+            } else {
+                // ── Whitelist-стек ──
+                try { wgHelper?.stopTunnel() } catch (_: Exception) {}
+            }
             killProcess()
             running.value = false
             activeWorkers.value = 0
@@ -1307,12 +1326,15 @@ object TunnelManager {
             _showCaptchaModal.value = false
             ManlCaptchaWebViewManager.cancelCaptcha()
             CaptchaWebViewActivityLauncher.dismiss()
-            repeat(30) {
-                try {
-                    java.net.ServerSocket(9000, 1, java.net.InetAddress.getByName("127.0.0.1")).use { it.close() }
-                    return@withContext
-                } catch (_: Exception) {
-                    delay(100)
+            // Ждём освобождения порта 9000 (Go-клиент) только для Whitelist-стека
+            if (stoppingMode != TunnelMode.SPEED) {
+                repeat(30) {
+                    try {
+                        java.net.ServerSocket(9000, 1, java.net.InetAddress.getByName("127.0.0.1")).use { it.close() }
+                        return@withContext
+                    } catch (_: Exception) {
+                        delay(100)
+                    }
                 }
             }
         }
