@@ -180,79 +180,16 @@ jobs:
         shell: bash
         run: chmod +x ./gradlew
 
-      - name: Generate temporary release keystore
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          KEYSTORE_PASSWORD="wdtt_temp_release_password"
-          KEY_PASSWORD="$KEYSTORE_PASSWORD"
-          KEY_ALIAS="wdtt-release"
-
-          rm -f release.keystore local.properties signing.env
-
-          keytool -genkeypair             -v             -keystore release.keystore             -storetype PKCS12             -storepass "$KEYSTORE_PASSWORD"             -keypass "$KEY_PASSWORD"             -alias "$KEY_ALIAS"             -keyalg RSA             -keysize 4096             -validity 10000             -dname "CN=WDTT,O=WDTT,C=LV"
-
-          {
-            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
-            echo "KEY_PASSWORD=$KEY_PASSWORD"
-            echo "KEY_ALIAS=$KEY_ALIAS"
-          } > signing.env
-
-          echo "Generated temporary release keystore"
-          ls -lh release.keystore
-
       - name: Build Android release APK
         shell: bash
         run: |
           set -euo pipefail
 
-          # No local.properties is created here, so Gradle produces unsigned release APKs.
-          # The workflow signs them manually in the next step using apksigner.
+          # Gradle подписывает APK автоматически через skyflow-release.keystore
+          # (лежит в репо, пароль/алиас захардкожены в build.gradle.kts).
+          # Это гарантирует одинаковую подпись у CI и локальных сборок —
+          # пользователь может устанавливать обновления без удаления приложения.
           ./gradlew clean :app:assembleRelease --stacktrace
-
-      - name: Sign release APKs manually
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          source signing.env
-
-          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          ZIPALIGN="$BUILD_TOOLS/zipalign"
-          APKSIGNER="$BUILD_TOOLS/apksigner"
-
-          echo "Using zipalign: $ZIPALIGN"
-          echo "Using apksigner: $APKSIGNER"
-
-          mkdir -p build/signed-apk
-          shopt -s nullglob
-          unsigned_apks=(app/build/outputs/apk/release/*-unsigned.apk)
-
-          if [ ${#unsigned_apks[@]} -eq 0 ]; then
-            echo "No unsigned release APKs found"
-            echo "Available APK outputs:"
-            find app/build/outputs/apk -type f -name "*.apk" -print || true
-            exit 1
-          fi
-
-          for apk in "${unsigned_apks[@]}"; do
-            name="$(basename "$apk" -unsigned.apk)"
-            aligned="build/signed-apk/${name}-aligned.apk"
-            signed="build/signed-apk/${name}-signed.apk"
-
-            echo "== Align $apk =="
-            "$ZIPALIGN" -p -f 4 "$apk" "$aligned"
-
-            echo "== Sign $aligned =="
-            "$APKSIGNER" sign               --ks release.keystore               --ks-key-alias "$KEY_ALIAS"               --ks-pass "pass:$KEYSTORE_PASSWORD"               --key-pass "pass:$KEY_PASSWORD"               --v1-signing-enabled true               --v2-signing-enabled true               --v3-signing-enabled true               --v4-signing-enabled false               --out "$signed"               "$aligned"
-
-            echo "== Verify $signed =="
-            "$APKSIGNER" verify               --verbose               --print-certs               "$signed"
-          done
-
-          echo "Signed APKs:"
-          ls -lh build/signed-apk/*-signed.apk
 
       - name: Collect build outputs
         shell: bash
@@ -263,10 +200,10 @@ jobs:
           mkdir -p build/artifacts/server
           mkdir -p build/artifacts/go-client
 
-          echo "== Signed APK outputs =="
-          find build/signed-apk -type f -name "*-signed.apk" -print -exec ls -lh {} \;
+          echo "== Release APK outputs =="
+          find app/build/outputs/apk/release -type f -name "*.apk" -print -exec ls -lh {} \;
 
-          cp build/signed-apk/*-signed.apk build/artifacts/apk/
+          cp app/build/outputs/apk/release/*.apk build/artifacts/apk/
           cp build/server/* build/artifacts/server/
           cp build/go-client/* build/artifacts/go-client/
 
