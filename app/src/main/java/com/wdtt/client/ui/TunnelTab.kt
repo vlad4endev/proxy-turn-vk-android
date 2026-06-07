@@ -481,9 +481,12 @@ fun TunnelTab() {
             }
         )
 
+        val isCaptchaPending = connectionStage == ConnectionStage.VK_CAPTCHA
+
         Box(contentAlignment = Alignment.Center) {
             val glowBrush = when {
                 isConnected -> SkyflowGradients.PowerConnected
+                isCaptchaPending -> SkyflowGradients.PowerCaptcha
                 isConnecting -> SkyflowGradients.PowerConnecting
                 else -> null
             }
@@ -497,6 +500,7 @@ fun TunnelTab() {
             PowerButton(
                 tunnelRunning = tunnelRunning || isStarting,
                 isConnecting = isConnecting,
+                isCaptchaPending = isCaptchaPending,
                 enabled = powerEnabled,
                 onClick = onPowerClick,
                 buttonSize = powerSize,
@@ -1452,12 +1456,14 @@ private fun TunnelModeOption(
 private fun PowerButton(
     tunnelRunning: Boolean,
     isConnecting: Boolean,
+    isCaptchaPending: Boolean = false,
     enabled: Boolean,
     onClick: () -> Unit,
     buttonSize: androidx.compose.ui.unit.Dp = 140.dp,
 ) {
     val targetColor = when {
         !tunnelRunning -> SkyflowColors.Idle
+        isCaptchaPending -> SkyflowColors.CaptchaBlue   // синий пока ждём капчу
         isConnecting -> SkyflowColors.Connecting
         else -> SkyflowColors.Connected
     }

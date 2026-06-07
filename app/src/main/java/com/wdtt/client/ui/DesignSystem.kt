@@ -46,6 +46,7 @@ object SkyflowColors {
     val Connecting = Color(0xFFFBBF24)
     val Connected = Color(0xFF34D399)
     val ConnectedDark = Color(0xFF065F46)
+    val CaptchaBlue = Color(0xFF3B82F6)   // кнопка синяя когда ожидает решения капчи
 
     // ── Text ──────────────────────────────────────────────────────────────
     val TextPrimary = Color(0xFFF4F4F5)
@@ -108,6 +109,12 @@ object SkyflowGradients {
     val PowerConnecting = Brush.radialGradient(
         colors = listOf(
             SkyflowColors.Connecting.copy(alpha = 0.15f),
+            Color.Transparent
+        )
+    )
+    val PowerCaptcha = Brush.radialGradient(
+        colors = listOf(
+            SkyflowColors.CaptchaBlue.copy(alpha = 0.20f),
             Color.Transparent
         )
     )
