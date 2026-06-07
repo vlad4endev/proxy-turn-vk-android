@@ -128,6 +128,11 @@ type Client struct {
 	KCP      KCPOpts
 	ClientID string
 	SubURL   string
+	// Password — пароль сервера для GETCONF-обмена. Если не пуст, клиент
+	// посылает GETCONF первым пакетом и получает уникальный WireGuard-конфиг
+	// (уникальный приватный ключ и IP) для каждого устройства. Это решает
+	// проблему «бардака» при много-пользовательском режиме.
+	Password string
 }
 
 // Server — разобранные и провалидированные CLI-опции сервера.
@@ -168,6 +173,7 @@ func ParseClient(args []string, errOut io.Writer) (*Client, error) {
 	dnsServers := fs.String("dns-servers", "", "свои UDP/53 DNS через запятую: ip[:port][,ip[:port]...]")
 	clientID := fs.String("client-id", "", "уникальный ID клиента (автогенерация если не задан)")
 	subURL := fs.String("sub", "", "URL подписки (sub.md) для получения списка серверов")
+	password := fs.String("password", "", "пароль сервера для GETCONF: каждое устройство получает уникальный WireGuard-конфиг")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -209,6 +215,7 @@ func ParseClient(args []string, errOut io.Writer) (*Client, error) {
 		},
 		ClientID: *clientID,
 		SubURL:   *subURL,
+		Password: *password,
 	}
 
 	// Обработка позиционного аргумента URI

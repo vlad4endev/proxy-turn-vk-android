@@ -198,6 +198,8 @@ func main() {
 		ObfKey:       cfg.Obf.Key,
 		GetCreds:     udprelay.GetCredsFunc(getCreds),
 		ClientID:     cfg.ClientID,
+		Password:     cfg.Password,
+		Listen:       cfg.Proxy.Listen,
 	}
 	if err := udprelay.Run(ctx, udpDtlsDialer, prov, logger, &connectedStreams, udpParams, peer, cfg.Proxy.Listen, cfg.TURN.N); err != nil {
 		if errors.Is(err, udprelay.ErrFatal) {
