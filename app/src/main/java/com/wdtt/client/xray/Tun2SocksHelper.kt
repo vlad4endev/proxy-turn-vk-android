@@ -52,7 +52,8 @@ class Tun2SocksHelper(private val vpnService: VpnService) {
             System.loadLibrary("hev-socks5-tunnel")
             nativeLibLoaded = true
             Log.d(TAG, "libhev-socks5-tunnel loaded successfully")
-        } catch (e: UnsatisfiedLinkError) {
+        } catch (e: Throwable) {
+            // Catches UnsatisfiedLinkError (missing/bad .so), SecurityException, etc.
             Log.w(TAG, "Failed to load libhev-socks5-tunnel: ${e.message}")
             nativeLibLoaded = false
         }
@@ -112,8 +113,8 @@ class Tun2SocksHelper(private val vpnService: VpnService) {
         configFile.writeText(
             """
 tunnel:
+  name: tun0
   mtu: $TUN_MTU
-  ipv4: $TUN_ADDRESS
 
 socks5:
   port: $socksPort
@@ -123,7 +124,7 @@ socks5:
 misc:
   task-stack-size: 20480
   connect-timeout: 5000
-  tcp-read-write-timeout: 60000
+  read-write-timeout: 60000
   log-level: warning
             """.trimIndent()
         )
@@ -178,7 +179,8 @@ misc:
             // Сигнализируем нативному event loop завершиться
             try {
                 TProxyStopService()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Catches UnsatisfiedLinkError, Exception, etc. — must not propagate from stop()
                 Log.w(TAG, "TProxyStopService: ${e.message}")
             }
             // Ждём завершения нативного потока (max 3 сек)

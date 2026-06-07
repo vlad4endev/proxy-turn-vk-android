@@ -324,7 +324,9 @@ object TunnelManager {
                 // ── Whitelist-стек: только Go-клиент + WireGuard, Xray не трогаем ──
                 wgHelper = WireGuardHelper(appContext)
                 startWhitelistMode(appContext, params, isSwitching)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Catches Exception AND Error (UnsatisfiedLinkError, ExceptionInInitializerError…)
+                // so a JNI failure never crashes the whole app process.
                 updateLog("critical_start_error", "Критическая ошибка запуска: ${e.message}", 99, true)
                 e.printStackTrace()
                 running.value = false
@@ -391,13 +393,13 @@ object TunnelManager {
                 )
             }
             updateLog("xray_started", "[XRAY] SOCKS5 прокси запущен (:${helper.socksPort()}) — $endpoint", 1, false)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
             val hint = when {
                 e.message?.contains("not found", ignoreCase = true) == true -> "libxray.so не собран для вашей архитектуры"
                 e.message?.contains("binary", ignoreCase = true) == true -> "Пересоберите APK скриптом build-native-speed.sh"
-                else -> "Проверьте логи и документацию"
+                else -> e.message?.take(60) ?: "Проверьте логи"
             }
             connectionHint.value = "Ошибка Xray: $hint"
             updateLog("xray_error", "Ошибка запуска Xray: ${e.readableMessage()}", 99, true)
@@ -405,6 +407,15 @@ object TunnelManager {
         }
 
         delay(2000) // ждём инициализации Xray
+
+        // Проверяем, что Xray всё ещё жив после задержки (мог упасть из-за ошибки конфига)
+        if (xrayHelper?.isRunning() != true) {
+            running.value = false
+            connectionStage.value = ConnectionStage.FAILED
+            connectionHint.value = "Xray завершился сразу — проверьте VLESS URI"
+            updateLog("xray_dead", "[XRAY] Процесс упал сразу после старта — возможно, некорректный VLESS URI", 99, true)
+            return
+        }
 
         // ── 2. Поднимаем TUN через VpnService и запускаем tun2socks ──────
         connectionHint.value = "Создание TUN-интерфейса…"
@@ -419,7 +430,7 @@ object TunnelManager {
 
         try {
             tun2socksHelper = Tun2SocksHelper(service)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
             connectionHint.value = "Ошибка инициализации tun2socks"
@@ -431,7 +442,7 @@ object TunnelManager {
             val socksPort = xrayHelper?.socksPort() ?: 10808
             tun2socksHelper!!.start("127.0.0.1", socksPort)
             updateLog("tun_started", "[TUN] Интерфейс создан, tun2socks запущен (SOCKS5 :$socksPort)", 1, false)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
             connectionHint.value = "Ошибка создания TUN"
@@ -1344,12 +1355,12 @@ object TunnelManager {
                 try {
                     tun2socksHelper?.stop()
                     tun2socksHelper = null
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e("TunnelManager", "Failed to stop tun2socks: ${e.message}")
                 }
                 try {
                     xrayHelper?.stop()
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e("TunnelManager", "Failed to stop xray: ${e.message}")
                 }
             } else {
@@ -1385,8 +1396,8 @@ object TunnelManager {
         withContext(Dispatchers.IO) {
             if (stoppingMode == TunnelMode.SPEED) {
                 // ── Speed-стек ──
-                try { tun2socksHelper?.stop(); tun2socksHelper = null } catch (_: Exception) {}
-                try { xrayHelper?.stop() } catch (_: Exception) {}
+                try { tun2socksHelper?.stop(); tun2socksHelper = null } catch (_: Throwable) {}
+                try { xrayHelper?.stop() } catch (_: Throwable) {}
             } else {
                 // ── Whitelist-стек ──
                 try { wgHelper?.stopTunnel() } catch (_: Exception) {}
