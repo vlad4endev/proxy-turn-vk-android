@@ -19,25 +19,25 @@ object ServerConfig {
     const val PASSWORD = "tunnel2026"      // ← пароль сервера (-password)
 
     /**
-     * WRAP-ключ вычисляется автоматически из PASSWORD по той же формуле
-     * что и на сервере: HKDF-SHA256(ikm=PASSWORD, salt="WDTT-WRAP-v1",
-     * info="rtp-obfs/chacha20poly1305", len=32).
+     * WRAP-ключ должен совпадать с OBF_KEY в конфиге free-turn-proxy на VPS.
+     * Смотреть: docker inspect free-turn-proxy → Env → OBF_KEY
      *
-     * При смене PASSWORD достаточно изменить только его — OBF_KEY пересчитается сам.
+     * Текущее значение взято напрямую из docker inspect (env OBF_KEY).
+     * При смене ключа на сервере — обновить здесь и пересобрать APK.
      */
-    val OBF_KEY: String by lazy { deriveObfKey(PASSWORD) }
+    const val OBF_KEY = "55c51601b576de791d58cd0ed8110f3833d106e40a16d10cfe09f53c0de5754a"
 
     const val VLESS_URI = "vless://e3731d3b-5bac-42df-8299-c10bf105e4c5@178.208.87.245:8880/?type=ws&encryption=none&path=%2Fskyflow&host=skyflow.sky-flow.site&security=none#WS%20Protokol"
 
     const val WG_CONFIG = """
 [Interface]
 PrivateKey = cFKlz2G2UU3j03vwe2jugrIhJTFjLmu1MSZ41Lpg024=
-Address = 10.66.66.2/32
+Address = 10.0.0.3/32
 DNS = 1.1.1.1
 MTU = 1280
 
 [Peer]
-PublicKey = 3TnSzSokv43REGxreadx6RL/YPwt/1hR+MaOUxRyTxs=
+PublicKey = WPfiQbTLCgE+GJkKaMbtQvw6WVXMWb/w0yKzSw9rbUM=
 AllowedIPs = 0.0.0.0/0
 Endpoint = 127.0.0.1:9000
 PersistentKeepalive = 25
