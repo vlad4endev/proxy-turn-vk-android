@@ -290,6 +290,16 @@ object TunnelManager {
     }
 
     private suspend fun startSpeedMode(context: Context, params: TunnelParams) {
+        // ── Остановить WireGuard если он был запущен в whitelist-режиме ──
+        // Два VPN-сессии не могут работать одновременно → native crash в GoBackend
+        try {
+            wgHelper?.stopTunnel()
+        } catch (e: Exception) {
+            Log.w("TunnelManager", "stopTunnel before speed mode: ${e.message}")
+        }
+        wireGuardStarted = false
+        wireGuardUp.value = false
+
         maybeRefreshSubscriptionInBackground(context)
 
         val server = resolveActiveVlessServer(context)
@@ -922,13 +932,12 @@ object TunnelManager {
                         launchWireGuardIfNeeded()
                     }
 
-                    // Дополнительные триггеры: TURN/DTLS-сигналы из Go-бинаря
-                    if (lineTrim.contains("Облачный релей подключён", ignoreCase = true) ||
-                        lineTrim.contains("relay connected", ignoreCase = true) ||
-                        lineTrim.contains("Established DTLS", ignoreCase = true) ||
-                        lineTrim.contains("active=", ignoreCase = true) ||
-                        lineTrim.contains("TURN urls", ignoreCase = true) ||
-                        lineTrim.contains("turn:", ignoreCase = true)
+                    // Триггер запуска WireGuard только при реально установленном DTLS
+                    // НЕ триггерим на "turn:90.156.236.105:19302" (логи VK TURN серверов)
+                    // НЕ триггерим на "Облачный релей подключён" (TURN relay ≠ DTLS)
+                    if (lineTrim.contains("Established DTLS", ignoreCase = true) ||
+                        lineTrim.contains("dtls connected", ignoreCase = true) ||
+                        lineTrim.contains("dtls ok", ignoreCase = true)
                     ) {
                         if (!running.value) running.value = true
                         launchWireGuardIfNeeded()
@@ -982,14 +991,22 @@ object TunnelManager {
     }
 
     private fun checkWireGuardReadiness() {
-        // ── Fallback: если WireGuard поднялся успешно, но логи не пришли ──
-        if (wireGuardStarted && wireGuardUp.value && connectionStage.value != ConnectionStage.VPN_READY) {
-            Log.d("TunnelManager", "WireGuard is up, marking as VPN_READY (fallback check)")
-            connectionStage.value = ConnectionStage.VPN_READY
-            running.value = true
-            markConnectedIfNeeded()
-            updateLog("wg_ready_fallback", "[VPN] WireGuard готов (проверка статуса) ✓", 2, false)
-        }
+        if (!wireGuardStarted || !wireGuardUp.value) return
+        if (connectionStage.value == ConnectionStage.VPN_READY) return
+
+        // ── Fallback: WireGuard поднялся, но [READY] лог от Go-клиента не пришёл ──
+        // Ждём минимум 15 секунд с момента запуска WireGuard — чтобы не опережать
+        // нормальный flow (VK creds → DTLS → READY). Воркеры могут быть 0 у
+        // нестандартных серверов, поэтому не блокируем по ним.
+        val wgAge = System.currentTimeMillis() - wireGuardExpectedAtMs
+        if (wireGuardExpectedAtMs > 0 && wgAge < 15_000) return
+
+        Log.d("TunnelManager", "WireGuard fallback: up=${wireGuardUp.value}, age=${wgAge}ms, workers=${activeWorkers.value}")
+        connectionStage.value = ConnectionStage.VPN_READY
+        connectionHint.value = ""
+        running.value = true
+        markConnectedIfNeeded()
+        updateLog("wg_ready_fallback", "[VPN] WireGuard готов (проверка статуса) ✓", 2, false)
     }
 
     private fun launchWireGuardIfNeeded() {
