@@ -1023,8 +1023,25 @@ object TunnelManager {
         android.util.Log.d("TunnelManager", "launchWireGuardIfNeeded called, wireGuardStarted=$wireGuardStarted, running=${running.value}")
         if (wireGuardStarted || !running.value) return
         wireGuardStarted = true
-        val configStr = WireGuardHelper.ensureWireGuardMtu(ServerConfig.WG_CONFIG.trim())
-        config.value = configStr
+
+        // ── Используем конфиг от сервера (GETCONF) если он получен, иначе статический ──
+        // Сервер отправляет WireGuard-конфиг через GETCONF протокол и Go-клиент
+        // печатает его между ╔WireGuard╗ и ╚══╝. Если конфиг получен — используем его.
+        // Статический ServerConfig.WG_CONFIG нужен только для тестирования без сервера.
+        val dynamicConfig = config.value
+        val rawConfig = if (!dynamicConfig.isNullOrBlank() && dynamicConfig.contains("[Interface]")) {
+            android.util.Log.d("TunnelManager", "Using dynamic WG config from server (GETCONF)")
+            dynamicConfig.trim()
+        } else {
+            android.util.Log.d("TunnelManager", "Using static WG config from ServerConfig (server not yet responded)")
+            ServerConfig.WG_CONFIG.trim()
+        }
+        val configStr = WireGuardHelper.ensureWireGuardMtu(rawConfig)
+        if (dynamicConfig.isNullOrBlank() || !dynamicConfig.contains("[Interface]")) {
+            // Обновляем config.value только если ещё не установлен динамический конфиг
+            config.value = configStr
+        }
+
         wireGuardExpectedAtMs = System.currentTimeMillis()
         markConnectedIfNeeded()
         // ── Запуск на IO диспетчере, не на Main, чтобы избежать deadlock ──
