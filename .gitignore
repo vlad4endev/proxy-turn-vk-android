@@ -27,6 +27,9 @@ app/src/main/assets/server
 server
 
 # ===== Keystore / Secrets =====
+# skyflow-release.keystore is intentionally tracked — password is already
+# hardcoded in build.gradle.kts, so excluding the file provides no security benefit.
+!skyflow-release.keystore
 *.keystore
 *.jks
 *.key
