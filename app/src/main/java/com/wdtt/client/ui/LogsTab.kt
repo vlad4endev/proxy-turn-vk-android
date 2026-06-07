@@ -538,8 +538,11 @@ private fun buildPathNodes(
             else -> NodeState.IDLE
         }
         PathNode.TURN -> when {
-            turnSeen && vpnDone -> NodeState.DONE
-            turnSeen -> NodeState.ACTIVE
+            // Если VPN готов или VPS подключён — релей точно прошёл → зелёный
+            vpnDone || vpsDone -> NodeState.DONE
+            turnSeen && running -> NodeState.ACTIVE
+            // Fallback: если стадия уже прошла авторизацию — релей активен
+            stage.ordinal >= ConnectionStage.SERVER_DTLS.ordinal && running -> NodeState.ACTIVE
             vkDone && running -> NodeState.ACTIVE
             vkDone -> NodeState.DONE
             else -> NodeState.IDLE
