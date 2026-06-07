@@ -166,6 +166,16 @@ jobs:
           echo "Server asset:"
           ls -lh app/src/main/assets/${SERVER_BINARY_NAME}
 
+      - name: Cache Gradle distributions and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', '**/*.gradle.kts', '**/gradle.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       - name: Make Gradle wrapper executable
         shell: bash
         run: chmod +x ./gradlew
