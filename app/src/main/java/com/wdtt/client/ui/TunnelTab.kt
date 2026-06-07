@@ -1731,22 +1731,16 @@ private suspend fun connectTunnel(
         val isSpeed = tunnelMode == "speed"
 
         if (isSpeed) {
-            val storedPeer = withContext(Dispatchers.IO) { store.peer.first() }
-            if (storedPeer.trim().substringBefore(":").isBlank()) {
-                withContext(Dispatchers.Main) {
-                    onStarting(false)
-                    Toast.makeText(context, "Укажите IP сервера в настройках", Toast.LENGTH_SHORT).show()
-                }
-                return
-            }
-
+            // SPEED mode drives traffic through Xray VLESS — the WireGuard "peer" field
+            // is not relevant here, so skip that check entirely.
+            // VLESS URI resolution and validation happen inside TunnelManager.startSpeedMode().
             val svcIntent = Intent(context, TunnelService::class.java).apply {
                 action = "START"
-                putExtra("peer", storedPeer)
+                putExtra("peer", "")           // not used in SPEED mode
                 putExtra("vk_hashes", "")
                 putExtra("secondary_vk_hash", "")
-                putExtra("workers_per_hash", 18)
-                putExtra("port", 9000)
+                putExtra("workers_per_hash", 0)
+                putExtra("port", 0)
                 putExtra("sni", "")
                 putExtra("connection_password", ServerConfig.PASSWORD)
                 putExtra("protocol", "udp")

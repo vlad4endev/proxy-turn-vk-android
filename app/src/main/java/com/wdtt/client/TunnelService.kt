@@ -148,10 +148,12 @@ class TunnelService : VpnService() {
                     tunnelMode = tunnelMode,
                     wgPort = serverWgPort
                 )
-                val canRestore = params.peer.isNotEmpty() && (
-                    tunnelMode == "speed" ||
-                        params.vkHashes.isNotEmpty()
-                )
+                // SPEED mode uses VLESS servers — peer is irrelevant, no need to validate it.
+                // WHITELIST mode needs both peer and vkHashes to restore successfully.
+                val canRestore = when (tunnelMode) {
+                    "speed" -> true
+                    else -> params.peer.isNotEmpty() && params.vkHashes.isNotEmpty()
+                }
                 if (canRestore) {
                     launch(Dispatchers.Main) {
                         startTunnel(params)
