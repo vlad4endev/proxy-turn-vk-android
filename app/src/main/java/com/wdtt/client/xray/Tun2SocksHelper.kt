@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Создаёт TUN-интерфейс через [VpnService.Builder] и запускает hev-socks5-tunnel
@@ -21,7 +22,12 @@ import java.io.File
 class Tun2SocksHelper(private val vpnService: VpnService) {
 
     @Volatile private var tunFd: ParcelFileDescriptor? = null
-    @Volatile private var running = false
+    // AtomicBoolean для видимости между нативным потоком и Kotlin-корутинами
+    private val _running = AtomicBoolean(false)
+    // Нативный поток, в котором живёт блокирующий вызов TProxyStartService.
+    // TProxyStartService запускает внутренний event loop и возвращается только
+    // после вызова TProxyStopService — его НЕЛЬЗЯ вызывать из корутины напрямую.
+    @Volatile private var proxyThread: Thread? = null
     @Volatile private var nativeLibLoaded = false
 
     companion object {
@@ -122,43 +128,72 @@ misc:
             """.trimIndent()
         )
 
-        // ── 3. Запуск hev-socks5-tunnel через JNI ───────────────────────
-        try {
-            TProxyStartService(configFile.absolutePath, tunFd!!.fd)
-            running = true
-            Log.i(TAG, "hev-socks5-tunnel запущен")
-        } catch (e: UnsatisfiedLinkError) {
+        // ── 3. Запуск hev-socks5-tunnel через JNI в отдельном потоке ────
+        //
+        // ВАЖНО: TProxyStartService — блокирующий JNI-вызов. Он запускает
+        // нативный event loop hev-socks5-tunnel и возвращается ТОЛЬКО после
+        // вызова TProxyStopService(). Вызывать его из корутины нельзя —
+        // suspend fun start() зависнет навечно и не установит VPN_READY.
+        //
+        // Решение: запускаем в daemon-потоке, устанавливаем _running = true
+        // сразу после старта потока (не после возврата TProxyStartService).
+        val configPath  = configFile.absolutePath
+        val fdInt       = tunFd!!.fd
+        proxyThread = Thread {
+            Log.i(TAG, "hev-socks5-tunnel thread started")
+            try {
+                TProxyStartService(configPath, fdInt)
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e(TAG, "libhev-socks5-tunnel.so не найден: ${e.message}")
+            } catch (e: Exception) {
+                Log.e(TAG, "TProxyStartService exception: ${e.message}")
+            } finally {
+                _running.set(false)
+                Log.i(TAG, "hev-socks5-tunnel thread exited")
+            }
+        }.also {
+            it.isDaemon = true
+            it.name = "hev-tproxy"
+            it.start()
+        }
+
+        // Небольшая пауза — убедиться, что поток не упал мгновенно
+        // (например, если fd некорректен). Поток остаётся живым — всё ок.
+        Thread.sleep(200)
+        if (!proxyThread!!.isAlive) {
             tunFd?.close()
             tunFd = null
             throw IllegalStateException(
-                "libhev-socks5-tunnel.so не найден — пересоберите APK (scripts/build-native-speed.sh)",
-                e
+                "hev-socks5-tunnel завершился немедленно — libhev-socks5-tunnel.so не загружен или некорректный fd"
             )
-        } catch (e: Exception) {
-            tunFd?.close()
-            tunFd = null
-            throw IllegalStateException("Не удалось запустить hev-socks5-tunnel: ${e.message}", e)
         }
+
+        _running.set(true)
+        Log.i(TAG, "hev-socks5-tunnel запущен (thread=${proxyThread?.name})")
     }
 
     /** Останавливает hev-socks5-tunnel и закрывает TUN-дескриптор. */
     suspend fun stop() = withContext(Dispatchers.IO) {
-        if (running) {
+        if (_running.getAndSet(false)) {
+            // Сигнализируем нативному event loop завершиться
             try {
                 TProxyStopService()
             } catch (e: Exception) {
                 Log.w(TAG, "TProxyStopService: ${e.message}")
             }
-            running = false
+            // Ждём завершения нативного потока (max 3 сек)
+            try {
+                proxyThread?.join(3_000)
+            } catch (_: InterruptedException) {}
+            proxyThread = null
             Log.i(TAG, "hev-socks5-tunnel остановлен")
         }
         val fd = tunFd
         tunFd = null
         try {
             fd?.close()
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
-    fun isRunning(): Boolean = running && tunFd != null
+    fun isRunning(): Boolean = _running.get() && tunFd != null && (proxyThread?.isAlive == true)
 }

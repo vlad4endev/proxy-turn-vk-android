@@ -40,6 +40,7 @@ import com.wdtt.client.LogEntry
 import com.wdtt.client.ServerConfig
 import com.wdtt.client.TunnelConnectionSnapshot
 import com.wdtt.client.TunnelManager
+import com.wdtt.client.TunnelMode
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.ui.theme.adaptivePadding
 import kotlinx.coroutines.launch
@@ -82,6 +83,7 @@ fun LogsTab() {
     val snapshot by TunnelManager.connectionSnapshot.collectAsStateWithLifecycle()
     val stats by TunnelManager.stats.collectAsStateWithLifecycle()
     val activeWorkers by TunnelManager.activeWorkers.collectAsStateWithLifecycle()
+    val tunnelMode by TunnelManager.tunnelMode.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     var logFilter by remember { mutableStateOf(LogFilter.ALL) }
 
@@ -94,8 +96,8 @@ fun LogsTab() {
         }
     }
 
-    val pathNodes = remember(tunnelRunning, connectionStage, currentLogs) {
-        buildPathNodes(tunnelRunning, connectionStage, currentLogs)
+    val pathNodes = remember(tunnelRunning, connectionStage, currentLogs, tunnelMode) {
+        buildPathNodes(tunnelRunning, connectionStage, currentLogs, tunnelMode)
     }
     val metrics = rememberScreenMetrics()
 
@@ -465,12 +467,56 @@ fun LogLine(entry: LogEntry) {
 private fun buildPathNodes(
     running: Boolean,
     stage: ConnectionStage,
-    logs: List<LogEntry>
+    logs: List<LogEntry>,
+    tunnelMode: TunnelMode = TunnelMode.WHITELIST
 ): List<PathNodeUi> {
     if (!running && stage == ConnectionStage.IDLE) {
         return PathNode.entries.map { PathNodeUi(it, NodeState.IDLE) }
     }
 
+    // ── SPEED-режим: Телефон → Xray → TUN; нет VK/TURN/VPS ───────────────
+    // В этом режиме VK-узел НЕ должен мигать как «активный» — VK-звонок
+    // не используется. Показываем прогресс по ключам логов.
+    if (tunnelMode == TunnelMode.SPEED) {
+        val hasFatal  = stage == ConnectionStage.FAILED ||
+            logs.any { it.isError && it.priority >= 99 && it.key != "stats" }
+        val xrayReady = logs.any { it.key == "xray_started" }
+        val tunReady  = logs.any { it.key == "tun_started" }
+        val vpnDone   = logs.any { it.key == "ready" } || stage == ConnectionStage.VPN_READY
+
+        return listOf(
+            // PHONE — всегда активен пока идёт подключение
+            PathNodeUi(PathNode.PHONE, when {
+                hasFatal && !vpnDone -> NodeState.ERROR
+                running -> if (vpnDone) NodeState.DONE else NodeState.ACTIVE
+                else -> NodeState.IDLE
+            }),
+            // VK-слот переиспользуем для Xray
+            PathNodeUi(PathNode.VK, when {
+                hasFatal && !xrayReady -> NodeState.ERROR
+                xrayReady -> NodeState.DONE
+                running -> NodeState.ACTIVE      // ← Xray запускается
+                else -> NodeState.IDLE
+            }),
+            // TURN-слот переиспользуем для TUN
+            PathNodeUi(PathNode.TURN, when {
+                hasFatal && xrayReady && !tunReady -> NodeState.ERROR
+                tunReady -> NodeState.DONE
+                xrayReady && running -> NodeState.ACTIVE   // ← TUN поднимается
+                else -> NodeState.IDLE
+            }),
+            // VPS-слот не используется в Speed-режиме
+            PathNodeUi(PathNode.VPS, NodeState.IDLE),
+            // VPN
+            PathNodeUi(PathNode.VPN, when {
+                vpnDone -> NodeState.DONE
+                tunReady && running -> NodeState.ACTIVE
+                else -> NodeState.IDLE
+            })
+        )
+    }
+
+    // ── WHITELIST-режим: VK TURN → Go-клиент → WireGuard ─────────────────
     val vkDone = logs.any { it.key == "creds_ok" || it.message.contains("Креды OK", true) }
     val turnSeen = logs.any { it.category == LogCategory.TURN || it.message.startsWith("[TURN]") }
     val vpsDone = logs.any { it.key == "dtls_ok" }
