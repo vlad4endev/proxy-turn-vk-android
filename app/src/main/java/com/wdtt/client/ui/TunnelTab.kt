@@ -200,15 +200,17 @@ fun TunnelTab() {
         }
     }
 
+    // WHITELIST: connected when workers > 0 (stats) OR stage == VPN_READY (Go client said ready / WireGuard up).
+    // SPEED:     connected only when stage == VPN_READY (TUN active).
     val isConnected = if (isSpeedMode) {
         tunnelRunning && connectionStage == ConnectionStage.VPN_READY
     } else {
-        tunnelRunning && activeWorkers > 0
+        tunnelRunning && (activeWorkers > 0 || connectionStage == ConnectionStage.VPN_READY)
     }
     val isConnecting = if (isSpeedMode) {
         isStarting || (tunnelRunning && connectionStage != ConnectionStage.VPN_READY && connectionStage != ConnectionStage.FAILED)
     } else {
-        isStarting || (tunnelRunning && activeWorkers <= 0)
+        isStarting || (tunnelRunning && activeWorkers <= 0 && connectionStage != ConnectionStage.VPN_READY && connectionStage != ConnectionStage.FAILED)
     }
     val vkHash = remember(vkLink) { parseVkHash(vkLink) }
     val powerEnabled = tunnelRunning || isStarting ||
@@ -220,6 +222,7 @@ fun TunnelTab() {
             !tunnelRunning -> isStarting = false
             isSpeedMode && connectionStage == ConnectionStage.VPN_READY -> isStarting = false
             !isSpeedMode && activeWorkers > 0 -> isStarting = false
+            !isSpeedMode && connectionStage == ConnectionStage.VPN_READY -> isStarting = false
         }
     }
 
