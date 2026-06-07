@@ -112,6 +112,7 @@ class SettingsStore(context: Context) {
         private val SUB_SERVERS = stringPreferencesKey("sub_servers")
         private val SUB_SELECTED = intPreferencesKey("sub_selected")
         private val SUB_UPDATED_AT = longPreferencesKey("sub_updated_at")
+        private val XRAY_ROUTING_MODE = stringPreferencesKey("xray_routing_mode")
 
         private fun <T> getProfileKey(baseKey: Preferences.Key<T>, profile: Int): Preferences.Key<T> {
             if (profile == 0) return baseKey
@@ -644,6 +645,17 @@ class SettingsStore(context: Context) {
 
     suspend fun saveLastSubUpdate(timestamp: Long) {
         dataStore.edit { prefs -> prefs[SUB_UPDATED_AT] = timestamp }
+    }
+
+    // ═══ Xray Routing Mode ═══
+
+    /** Returns current routing mode key: "global" | "bypass_ru" | "bypass_local" */
+    fun getRoutingMode(): String = runBlocking {
+        dataStore.data.first()[XRAY_ROUTING_MODE] ?: "global"
+    }
+
+    suspend fun saveRoutingMode(mode: String) {
+        dataStore.edit { prefs -> prefs[XRAY_ROUTING_MODE] = mode }
     }
 
     fun loadServers(): List<VlessServer> = runBlocking {

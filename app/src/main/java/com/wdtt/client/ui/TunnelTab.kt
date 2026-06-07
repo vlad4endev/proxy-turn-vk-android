@@ -122,6 +122,7 @@ fun TunnelTab() {
     var lastNetworkTransport by remember { mutableStateOf<NetworkTransport?>(null) }
     val runtimeTunnelMode by TunnelManager.tunnelMode.collectAsStateWithLifecycle()
     val showCaptcha by TunnelManager.showCaptchaModal.collectAsStateWithLifecycle()
+    val activeRoutingModeKey by TunnelManager.activeRoutingMode.collectAsStateWithLifecycle()
     val isSpeedMode = savedTunnelMode == "speed" ||
         runtimeTunnelMode == TunnelMode.SPEED
 
@@ -1013,7 +1014,10 @@ fun TunnelTab() {
             isConnecting = isConnecting,
             isConnected = isConnected,
             isSpeedMode = isSpeedMode,
-            speedServer = activeSpeedServer
+            speedServer = activeSpeedServer,
+            routingModeLabel = if (isSpeedMode && isConnected) {
+                com.wdtt.client.xray.XrayRoutingMode.fromKey(activeRoutingModeKey).label
+            } else null
         )
 
         Spacer(Modifier.height(12.dp))
@@ -1656,7 +1660,8 @@ private fun ServerStatusRow(
     isConnecting: Boolean,
     isConnected: Boolean,
     isSpeedMode: Boolean = false,
-    speedServer: com.wdtt.client.xray.VlessServer? = null
+    speedServer: com.wdtt.client.xray.VlessServer? = null,
+    routingModeLabel: String? = null
 ) {
     val dotColor = when {
         !tunnelRunning -> SkyflowColors.Placeholder
@@ -1684,6 +1689,7 @@ private fun ServerStatusRow(
                 "tls" -> append(" · TLS")
                 "reality" -> append(" · Reality")
             }
+            if (!routingModeLabel.isNullOrBlank()) append(" · $routingModeLabel")
         }
     } else null
 

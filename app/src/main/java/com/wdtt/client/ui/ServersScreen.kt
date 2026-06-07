@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.xray.SubscriptionParser
 import com.wdtt.client.xray.VlessServer
+import com.wdtt.client.xray.XrayRoutingMode
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,6 +50,7 @@ fun ServersScreen(
     var isLoading by remember { mutableStateOf(false) }
     var isPinging by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var routingMode by remember { mutableStateOf(settingsStore.getRoutingMode()) }
 
     Box(
         modifier = Modifier
@@ -78,6 +80,44 @@ fun ServersScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // ── Routing mode ──────────────────────────────────────────────────
+            Text(
+                "МАРШРУТИЗАЦИЯ",
+                style = MaterialTheme.typography.labelSmall,
+                color = SkyflowColors.TextMuted
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                XrayRoutingMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = routingMode == mode.key,
+                        onClick = {
+                            routingMode = mode.key
+                            scope.launch { settingsStore.saveRoutingMode(mode.key) }
+                        },
+                        label = { Text(mode.label, maxLines = 1) },
+                        colors = chipColors(routingMode == mode.key),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                when (routingMode) {
+                    "bypass_ru" -> "Российские сайты и IP открываются напрямую, зарубежные — через прокси"
+                    "bypass_local" -> "Только LAN/loopback напрямую — весь интернет через прокси"
+                    else -> "Весь трафик направляется через прокси-сервер"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = SkyflowColors.TextMuted
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ── Input mode ────────────────────────────────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)

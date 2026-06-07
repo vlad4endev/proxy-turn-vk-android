@@ -9,6 +9,26 @@ import org.json.JSONObject
 import java.io.File
 
 /**
+ * Режим маршрутизации Xray.
+ *
+ * - GLOBAL: весь трафик через прокси
+ * - BYPASS_RU: российские IP/домены — напрямую, остальное — через прокси
+ * - BYPASS_LOCAL: только LAN/loopback напрямую (расширенный режим по умолчанию)
+ *
+ * BYPASS_RU требует geoip.dat и geosite.dat в папке Xray (assets → filesDir/xray/).
+ */
+enum class XrayRoutingMode(val key: String, val label: String) {
+    GLOBAL("global", "Глобальный"),
+    BYPASS_RU("bypass_ru", "Без России"),
+    BYPASS_LOCAL("bypass_local", "Только локальные");
+
+    companion object {
+        fun fromKey(key: String): XrayRoutingMode =
+            entries.firstOrNull { it.key == key } ?: GLOBAL
+    }
+}
+
+/**
  * Manages the lifecycle of the Xray-core process and config generation.
  *
  * Xray binary is expected at [Context.getFilesDir]/xray/xray  (arm64 or x86_64 slice,
@@ -47,8 +67,12 @@ class XrayHelper(context: Context) {
     /**
      * Generates an Xray JSON config for the given [VlessServer].
      * Supports tcp, ws, grpc with none/tls/reality security.
+     * [routingMode] controls which traffic bypasses the proxy.
      */
-    fun generateConfigFromServer(server: VlessServer): String {
+    fun generateConfigFromServer(
+        server: VlessServer,
+        routingMode: XrayRoutingMode = XrayRoutingMode.GLOBAL
+    ): String {
         val streamSettings = buildStreamSettingsFromServer(server)
 
         val user = JSONObject().apply {
@@ -74,7 +98,7 @@ class XrayHelper(context: Context) {
             put("tag", "proxy")
         }
 
-        return buildFullConfig(outbound)
+        return buildFullConfig(outbound, routingMode)
     }
 
     /**
@@ -110,6 +134,7 @@ class XrayHelper(context: Context) {
 
     /**
      * Writes [configJson] to disk and starts the Xray process.
+     * Also copies geoip.dat / geosite.dat from assets if not yet present.
      * No-ops (with a warning) if libxray.so is not present in the nativeLibraryDir.
      */
     suspend fun start(configJson: String) = withContext(Dispatchers.IO) {
@@ -126,6 +151,7 @@ class XrayHelper(context: Context) {
 
         try {
             xrayDir.mkdirs()
+            copyGeoFilesIfNeeded()
             configFile.writeText(configJson, Charsets.UTF_8)
 
             if (!xrayBin.canExecute()) {
@@ -186,7 +212,11 @@ class XrayHelper(context: Context) {
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private fun buildFullConfig(outbound: JSONObject): String {
+    private fun buildFullConfig(
+        outbound: JSONObject,
+        routingMode: XrayRoutingMode = XrayRoutingMode.GLOBAL
+    ): String {
+        val hasGeoData = File(xrayDir, "geoip.dat").exists() && File(xrayDir, "geosite.dat").exists()
         val config = JSONObject().apply {
             put("log", JSONObject().apply {
                 put("loglevel", "warning")
@@ -206,23 +236,100 @@ class XrayHelper(context: Context) {
                     put("tag", "block")
                 })
             })
-            put("routing", JSONObject().apply {
-                put("domainStrategy", "IPIfNonMatch")
-                put("rules", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("type", "field")
-                        put("outboundTag", "direct")
-                        put("ip", JSONArray().apply {
-                            put("127.0.0.0/8")
-                            put("10.0.0.0/8")
-                            put("172.16.0.0/12")
-                            put("192.168.0.0/16")
-                        })
-                    })
-                })
-            })
+            put("routing", buildRoutingRules(routingMode, hasGeoData))
         }
         return config.toString(2)
+    }
+
+    /**
+     * Builds Xray routing rules for the given mode.
+     *
+     * GLOBAL:      only LAN/loopback direct (same as before)
+     * BYPASS_RU:   Russian IP ranges + geosite:category-ru + geoip:ru → direct
+     * BYPASS_LOCAL: same as GLOBAL (only private IPs direct)
+     *
+     * When geoip.dat / geosite.dat are absent, BYPASS_RU falls back to GLOBAL
+     * with a warning in the log.
+     */
+    private fun buildRoutingRules(mode: XrayRoutingMode, hasGeoData: Boolean): JSONObject {
+        val rules = JSONArray()
+
+        // ── Always direct: loopback + RFC-1918 LAN ────────────────────────────
+        rules.put(JSONObject().apply {
+            put("type", "field")
+            put("outboundTag", "direct")
+            put("ip", JSONArray().apply {
+                put("127.0.0.0/8")
+                put("10.0.0.0/8")
+                put("172.16.0.0/12")
+                put("192.168.0.0/16")
+            })
+        })
+
+        // ── BYPASS_RU: route Russian traffic directly ─────────────────────────
+        if (mode == XrayRoutingMode.BYPASS_RU) {
+            if (hasGeoData) {
+                // Russian geosite domains → direct
+                rules.put(JSONObject().apply {
+                    put("type", "field")
+                    put("outboundTag", "direct")
+                    put("domain", JSONArray().apply {
+                        put("geosite:category-ru")
+                    })
+                })
+                // Russian IP ranges → direct
+                rules.put(JSONObject().apply {
+                    put("type", "field")
+                    put("outboundTag", "direct")
+                    put("ip", JSONArray().apply {
+                        put("geoip:ru")
+                        put("geoip:private")
+                    })
+                })
+            } else {
+                // Geo data missing: fall back to well-known Russian IPs only
+                Log.w(TAG, "BYPASS_RU: geoip.dat/geosite.dat not found — falling back to known-RU CIDRs")
+                rules.put(JSONObject().apply {
+                    put("type", "field")
+                    put("outboundTag", "direct")
+                    put("ip", JSONArray().apply {
+                        // Major Russian operator ranges (approximate fallback)
+                        put("5.3.0.0/16"); put("5.8.0.0/16"); put("5.16.0.0/14")
+                        put("31.13.0.0/16"); put("31.44.0.0/16"); put("37.9.0.0/16")
+                        put("45.8.0.0/16"); put("77.40.0.0/14"); put("77.88.0.0/17")
+                        put("84.52.0.0/14"); put("85.142.0.0/16"); put("91.108.0.0/16")
+                        put("95.167.0.0/16"); put("149.154.0.0/16")
+                        put("178.208.0.0/16"); put("185.67.0.0/16")
+                        put("217.69.0.0/16")
+                    })
+                })
+            }
+        }
+
+        return JSONObject().apply {
+            put("domainStrategy", "IPIfNonMatch")
+            put("rules", rules)
+        }
+    }
+
+    /**
+     * Copies geoip.dat and geosite.dat from app assets into xrayDir.
+     * No-op if the files are already present (avoids redundant I/O on each start).
+     * Silently skips files that are missing from assets (e.g. dev builds without CI step).
+     */
+    private fun copyGeoFilesIfNeeded() {
+        for (name in listOf("geoip.dat", "geosite.dat")) {
+            val dest = File(xrayDir, name)
+            if (dest.exists() && dest.length() > 0) continue
+            try {
+                appContext.assets.open(name).use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                Log.i(TAG, "Copied $name from assets (${dest.length()} bytes)")
+            } catch (e: Exception) {
+                Log.w(TAG, "Geo file $name not in assets — BYPASS_RU will use fallback CIDRs: ${e.message}")
+            }
+        }
     }
 
     private fun buildStreamSettingsFromServer(server: VlessServer): JSONObject {

@@ -22,6 +22,7 @@ import com.wdtt.client.xray.SubscriptionParser
 import com.wdtt.client.xray.Tun2SocksHelper
 import com.wdtt.client.xray.VlessServer
 import com.wdtt.client.xray.XrayHelper
+import com.wdtt.client.xray.XrayRoutingMode
 
 enum class ConnectionStage {
     IDLE,
@@ -110,6 +111,10 @@ object TunnelManager {
     // Изолирован от Whitelist-стека. Никогда не трогает process/wgHelper.
     private var xrayHelper: XrayHelper? = null
     private var tun2socksHelper: Tun2SocksHelper? = null
+    /** Текущий режим маршрутизации Xray — обновляется при каждом подключении Speed-режима. */
+    val activeRoutingMode = MutableStateFlow("global")
+    /** Фоновый Job для периодического сбора трафика через TrafficStats (только Speed-режим). */
+    private var speedStatsJob: Job? = null
 
     // Error counters for circuit breaker
     private var floodCount = 0
@@ -382,9 +387,11 @@ object TunnelManager {
         transportRestartInProgress = false
 
         // ── 1. Запускаем Xray (SOCKS5 на :10808) ─────────────────────────
+        val routingMode = XrayRoutingMode.fromKey(SettingsStore(context).getRoutingMode())
+        activeRoutingMode.value = routingMode.key
         try {
             val helper = xrayHelper ?: XrayHelper(context).also { xrayHelper = it }
-            val configJson = helper.generateConfigFromServer(server)
+            val configJson = helper.generateConfigFromServer(server, routingMode)
             config.value = configJson
             helper.start(configJson)
             if (!helper.isRunning()) {
@@ -456,7 +463,9 @@ object TunnelManager {
             connectionStage.value = ConnectionStage.VPN_READY
             connectionHint.value = ""
             markConnectedIfNeeded()
-            updateLog("ready", "[READY] Скоростной режим — TUN активен, весь трафик через Xray ✓", 2, false)
+            startSpeedModeStats()
+            val routingLabel = routingMode.label
+            updateLog("ready", "[READY] Скоростной режим — TUN активен, маршруты: $routingLabel ✓", 2, false)
         } else {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
@@ -506,6 +515,42 @@ object TunnelManager {
                 updateLog("sub_refresh_err", "[ПОДПИСКА] Ошибка обновления: ${e.message}", 99, false)
             }
         }
+    }
+
+    /**
+     * Запускает фоновый сбор статистики трафика для Speed-режима.
+     *
+     * Использует android.net.TrafficStats (device-wide) и вычисляет дельту
+     * относительно момента подключения. Результат пишется в [stats] в формате,
+     * совместимом с парсером TunnelTab:
+     *   "total_backend-to-dtls: <rxBytes> total_dtls-to-backend: <txBytes>"
+     *
+     * TrafficStats.UNSUPPORTED (-1) возвращается на некоторых эмуляторах —
+     * в этом случае значение зажимается до 0.
+     */
+    private fun startSpeedModeStats() {
+        speedStatsJob?.cancel()
+        val safeRead: (Long) -> Long = { v -> if (v < 0L) 0L else v }
+        val startRx = safeRead(android.net.TrafficStats.getTotalRxBytes())
+        val startTx = safeRead(android.net.TrafficStats.getTotalTxBytes())
+        speedStatsJob = scope.launch {
+            while (isActive) {
+                delay(1000)
+                val rx = safeRead(android.net.TrafficStats.getTotalRxBytes()) - startRx
+                val tx = safeRead(android.net.TrafficStats.getTotalTxBytes()) - startTx
+                // Format compatible with TunnelTab's LaunchedEffect(stats) parser:
+                //   total_backend-to-dtls = rx = download
+                //   total_dtls-to-backend = tx = upload
+                stats.value = "total_backend-to-dtls: $rx total_dtls-to-backend: $tx"
+            }
+        }
+    }
+
+    /** Останавливает сбор статистики трафика Speed-режима и сбрасывает stats. */
+    private fun stopSpeedModeStats() {
+        speedStatsJob?.cancel()
+        speedStatsJob = null
+        stats.value = "Ожидание данных..."
     }
 
     private fun buildSpeedProtocolLabel(server: VlessServer): String {
@@ -1352,6 +1397,7 @@ object TunnelManager {
         scope.launch(Dispatchers.IO) {
             if (stoppingMode == TunnelMode.SPEED) {
                 // ── Останавливаем только Speed-стек (Xray + tun2socks) ──
+                stopSpeedModeStats()
                 try {
                     tun2socksHelper?.stop()
                     tun2socksHelper = null
@@ -1383,6 +1429,7 @@ object TunnelManager {
         connectionHint.value = ""
         connectionSnapshot.value = TunnelConnectionSnapshot()
         activeSpeedServer.value = null
+        activeRoutingMode.value = "global"
         tunnelMode.value = TunnelMode.WHITELIST
         currentParams = null
         currentLinkProvider = LinkProvider.UNKNOWN
@@ -1396,6 +1443,7 @@ object TunnelManager {
         withContext(Dispatchers.IO) {
             if (stoppingMode == TunnelMode.SPEED) {
                 // ── Speed-стек ──
+                stopSpeedModeStats()
                 try { tun2socksHelper?.stop(); tun2socksHelper = null } catch (_: Throwable) {}
                 try { xrayHelper?.stop() } catch (_: Throwable) {}
             } else {

@@ -166,6 +166,22 @@ jobs:
           echo "Server asset:"
           ls -lh app/src/main/assets/${SERVER_BINARY_NAME}
 
+      - name: Download Xray geo data (geoip.dat + geosite.dat)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p app/src/main/assets
+
+          BASE_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download"
+          for name in geoip.dat geosite.dat; do
+            echo "Downloading $name..."
+            curl -fsSL "${BASE_URL}/${name}" -o "app/src/main/assets/${name}"
+          done
+
+          echo "Geo data sizes:"
+          ls -lh app/src/main/assets/geoip.dat app/src/main/assets/geosite.dat
+
       - name: Cache Gradle distributions and build cache
         uses: actions/cache@v4
         with:
