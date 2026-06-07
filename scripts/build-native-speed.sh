@@ -20,7 +20,9 @@ ARCH="$(uname -m)"
 case "$HOST" in
   linux) NDK_HOST=linux-x86_64 ;;
   darwin)
-    if [[ "$ARCH" == "arm64" ]]; then
+    # On Apple Silicon, NDK may ship only darwin-x86_64 (runs via Rosetta 2).
+    # Prefer darwin-arm64 if present, otherwise fall back to darwin-x86_64.
+    if [[ "$ARCH" == "arm64" ]] && [[ -d "$NDK/toolchains/llvm/prebuilt/darwin-arm64" ]]; then
       NDK_HOST=darwin-arm64
     else
       NDK_HOST=darwin-x86_64
