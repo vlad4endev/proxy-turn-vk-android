@@ -393,7 +393,33 @@ object TunnelManager {
             val helper = xrayHelper ?: XrayHelper(context).also { xrayHelper = it }
             val configJson = helper.generateConfigFromServer(server, routingMode)
             config.value = configJson
-            helper.start(configJson)
+            // Forward Xray stderr/stdout lines to app logs — errors are highlighted,
+            // key startup lines (Xray version, listening port) are shown as info.
+            helper.start(configJson) { line ->
+                val isXrayError = line.contains("error", ignoreCase = true) ||
+                    line.contains("failed", ignoreCase = true) ||
+                    line.contains("fatal", ignoreCase = true) ||
+                    line.contains("panic", ignoreCase = true) ||
+                    line.contains("invalid", ignoreCase = true)
+                val isXrayInfo = line.contains("Xray", ignoreCase = true) ||
+                    line.contains("started", ignoreCase = true) ||
+                    line.contains("listening", ignoreCase = true) ||
+                    line.contains("inbound", ignoreCase = true)
+                when {
+                    isXrayError -> updateLog(
+                        "xray_err_${line.take(24).hashCode()}",
+                        "[XRAY ERR] ${line.take(160)}",
+                        3,
+                        true
+                    )
+                    isXrayInfo -> updateLog(
+                        "xray_info_${line.take(24).hashCode()}",
+                        "[XRAY] ${line.take(160)}",
+                        3,
+                        false
+                    )
+                }
+            }
             if (!helper.isRunning()) {
                 throw IllegalStateException(
                     "Xray binary не найден или не запустился. Пересоберите APK:\nscripts/build-native-speed.sh"
@@ -419,8 +445,20 @@ object TunnelManager {
         if (xrayHelper?.isRunning() != true) {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
-            connectionHint.value = "Xray завершился сразу — проверьте VLESS URI"
-            updateLog("xray_dead", "[XRAY] Процесс упал сразу после старта — возможно, некорректный VLESS URI", 99, true)
+            // Build a human-readable snippet of the last few Xray output lines
+            val xrayOut = xrayHelper?.lastOutput
+                ?.filter { it.isNotBlank() }
+                ?.takeLast(6)
+                ?.joinToString(" | ")
+                ?.take(300)
+                ?: ""
+            connectionHint.value = "Xray завершился — смотрите лог"
+            val crashMsg = if (xrayOut.isNotBlank()) {
+                "[XRAY] Процесс упал. Вывод: $xrayOut"
+            } else {
+                "[XRAY] Процесс упал сразу после старта — некорректный конфиг или несовместимая архитектура"
+            }
+            updateLog("xray_dead", crashMsg, 99, true)
             return
         }
 

@@ -53,11 +53,19 @@ class XrayHelper(context: Context) {
 
     @Volatile private var process: Process? = null
 
+    /** Last N lines of Xray stdout/stderr — used for error reporting when it crashes. */
+    private val lastOutputBuf = ArrayDeque<String>()
+    private val lastOutputLock = Any()
+
+    val lastOutput: List<String>
+        get() = synchronized(lastOutputLock) { lastOutputBuf.toList() }
+
     companion object {
         private const val TAG = "XrayHelper"
         private const val SOCKS_PORT  = 10808
         private const val HTTP_PORT   = 10809
         private const val API_PORT    = 10085
+        private const val MAX_OUTPUT_LINES = 40
     }
 
     // -------------------------------------------------------------------------
@@ -136,9 +144,15 @@ class XrayHelper(context: Context) {
      * Writes [configJson] to disk and starts the Xray process.
      * Also copies geoip.dat / geosite.dat from assets if not yet present.
      * No-ops (with a warning) if libxray.so is not present in the nativeLibraryDir.
+     *
+     * @param onLogLine Optional callback invoked for every line of Xray stdout/stderr.
+     *                  Called from a background thread — must be thread-safe.
      */
-    suspend fun start(configJson: String) = withContext(Dispatchers.IO) {
+    suspend fun start(configJson: String, onLogLine: ((String) -> Unit)? = null) = withContext(Dispatchers.IO) {
         stop()
+
+        // Clear output buffer from previous run
+        synchronized(lastOutputLock) { lastOutputBuf.clear() }
 
         if (!xrayBin.exists()) {
             Log.w(TAG, "Xray binary not found at ${xrayBin.absolutePath} — skipping start")
@@ -151,7 +165,7 @@ class XrayHelper(context: Context) {
 
         try {
             xrayDir.mkdirs()
-            copyGeoFilesIfNeeded()
+            copyGeoFilesIfNeeded(configJson)
             configFile.writeText(configJson, Charsets.UTF_8)
 
             if (!xrayBin.canExecute()) {
@@ -165,12 +179,23 @@ class XrayHelper(context: Context) {
             process = pb.start()
             Log.i(TAG, "Xray started (pid ${process?.let { pidOf(it) } ?: "?"})")
 
-            // Drain stdout/stderr asynchronously to avoid blocking the pipe buffer
+            // Drain stdout/stderr asynchronously to avoid blocking the pipe buffer.
+            // Lines are stored in lastOutputBuf (capped at MAX_OUTPUT_LINES) and
+            // forwarded to the optional onLogLine callback for UI display.
             val proc = process!!
             Thread({
                 proc.inputStream.bufferedReader().use { reader ->
                     reader.lineSequence().forEach { line ->
                         Log.d(TAG, line)
+                        // Store in rolling buffer
+                        synchronized(lastOutputLock) {
+                            if (lastOutputBuf.size >= MAX_OUTPUT_LINES) {
+                                lastOutputBuf.removeFirst()
+                            }
+                            lastOutputBuf.addLast(line)
+                        }
+                        // Forward to caller (e.g., TunnelManager for UI logs)
+                        try { onLogLine?.invoke(line) } catch (_: Exception) {}
                     }
                 }
             }, "xray-log").apply { isDaemon = true; start() }
@@ -219,7 +244,9 @@ class XrayHelper(context: Context) {
         val hasGeoData = File(xrayDir, "geoip.dat").exists() && File(xrayDir, "geosite.dat").exists()
         val config = JSONObject().apply {
             put("log", JSONObject().apply {
-                put("loglevel", "warning")
+                // Use "info" so startup sequence (inbound listening, config parsed, etc.)
+                // is visible in the app log panel. Switch to "warning" once stable.
+                put("loglevel", "info")
             })
             put("inbounds", JSONArray().apply {
                 put(buildSocksInbound())
@@ -313,11 +340,24 @@ class XrayHelper(context: Context) {
     }
 
     /**
-     * Copies geoip.dat and geosite.dat from app assets into xrayDir.
-     * No-op if the files are already present (avoids redundant I/O on each start).
+     * Copies geoip.dat and geosite.dat from app assets into xrayDir, but ONLY when the
+     * generated config actually references them (i.e. BYPASS_RU mode with geo rules active).
+     *
+     * Skipping the copy for GLOBAL / BYPASS_LOCAL:
+     *  - Avoids a 28 MB I/O on every startup for users who don't need it.
+     *  - Prevents Xray from unexpectedly loading large geo databases on startup
+     *    (some versions pre-load any .dat files found in the working directory).
+     *
+     * No-op if the files are already present and non-empty (avoids redundant I/O).
      * Silently skips files that are missing from assets (e.g. dev builds without CI step).
      */
-    private fun copyGeoFilesIfNeeded() {
+    private fun copyGeoFilesIfNeeded(configJson: String) {
+        // Only copy if the config actually uses geoip:/geosite: routing rules
+        val needsGeoData = configJson.contains("geoip:") || configJson.contains("geosite:")
+        if (!needsGeoData) {
+            Log.d(TAG, "Geo routing not active — skipping geoip.dat/geosite.dat copy")
+            return
+        }
         for (name in listOf("geoip.dat", "geosite.dat")) {
             val dest = File(xrayDir, name)
             if (dest.exists() && dest.length() > 0) continue
