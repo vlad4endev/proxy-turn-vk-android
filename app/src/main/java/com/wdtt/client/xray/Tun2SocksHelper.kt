@@ -115,23 +115,27 @@ class Tun2SocksHelper(private val vpnService: VpnService) {
         Log.i(TAG, "TUN создан, fd=${tunFd!!.fd}")
 
         // ── 2. Конфиг hev-socks5-tunnel ──────────────────────────────────
+        // Format per hev-socks5-tunnel v2.x documentation.
+        // Notes: log-level must be "warn" (not "warning"); mtu 8500 is the
+        // recommended default; multi-queue must be false for Android JNI mode.
         val configFile = File(vpnService.filesDir, "hev-socks5-tunnel.yml")
         configFile.writeText(
             """
 tunnel:
   name: tun0
-  mtu: $TUN_MTU
+  mtu: 8500
+  multi-queue: false
 
 socks5:
   port: $socksPort
   address: $socksHost
-  udp: 'udp'
+  udp: udp
 
 misc:
   task-stack-size: 20480
   connect-timeout: 5000
   read-write-timeout: 60000
-  log-level: warning
+  log-level: warn
             """.trimIndent()
         )
 
@@ -146,6 +150,7 @@ misc:
         // сразу после старта потока (не после возврата TProxyStartService).
         val configPath  = configFile.absolutePath
         val fdInt       = tunFd!!.fd
+        Log.i(TAG, "TProxyStartService: fd=$fdInt configExists=${configFile.exists()} configSize=${configFile.length()} path=$configPath")
         val threadError = arrayOfNulls<String>(1) // [0] written by thread, read after join/sleep
         proxyThread = Thread {
             Log.i(TAG, "hev-socks5-tunnel thread started, fd=$fdInt cfg=$configPath")
@@ -173,9 +178,10 @@ misc:
         if (!proxyThread!!.isAlive) {
             tunFd?.close()
             tunFd = null
-            val reason = threadError[0] ?: "нет исключений — hev вернулся немедленно (config/fd?)"
+            val cfgOk = configFile.exists() && configFile.length() > 0
+            val reason = threadError[0] ?: "hev вернулся без исключения (config/fd?)"
             throw IllegalStateException(
-                "hev-socks5-tunnel завершился немедленно: $reason"
+                "hev-socks5-tunnel завершился немедленно: $reason [fd=$fdInt cfg=${if (cfgOk) "ok(${configFile.length()}b)" else "MISSING"}]"
             )
         }
 
