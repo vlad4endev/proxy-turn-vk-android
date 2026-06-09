@@ -1141,6 +1141,10 @@ object TunnelManager {
         if (connectedSince.value == 0L) {
             connectedSince.value = System.currentTimeMillis()
         }
+        // Запускаем сбор трафика для всех режимов (idempotent: cancel+restart)
+        if (speedStatsJob?.isActive != true) {
+            startSpeedModeStats()
+        }
     }
 
     private suspend fun refreshWireGuardUp() {

@@ -343,33 +343,42 @@ fun TunnelTab() {
             services = services.map { it.copy(pingMs = -1) }
             return@LaunchedEffect
         }
-        services = services.map { it.copy(pingMs = -1) }
-        services.forEachIndexed { i, svc ->
-            launch(Dispatchers.IO) {
-                val start = System.currentTimeMillis()
-                val ping = try {
-                    val url = java.net.URL("https://${svc.host}")
-                    val conn = url.openConnection() as java.net.HttpURLConnection
-                    conn.connectTimeout = 4000
-                    conn.readTimeout = 4000
-                    conn.requestMethod = "HEAD"
-                    conn.connect()
-                    val code = conn.responseCode
-                    conn.disconnect()
-                    if (code in 200..403) (System.currentTimeMillis() - start).toInt() else -2
-                } catch (e: Exception) { -2 }
-                withContext(Dispatchers.Main) {
-                    services = services.toMutableList().also { it[i] = svc.copy(pingMs = ping) }
+        // Ждём 3с, чтобы VPN-маршруты успели подняться перед первым пингом
+        delay(3000L)
+        while (true) {
+            services = services.map { it.copy(pingMs = -1) }
+            val snapshot = services.toList()
+            snapshot.forEachIndexed { i, svc ->
+                launch(Dispatchers.IO) {
+                    val start = System.currentTimeMillis()
+                    val ping = try {
+                        val url = java.net.URL("https://${svc.host}")
+                        val conn = url.openConnection() as java.net.HttpURLConnection
+                        conn.connectTimeout = 5000
+                        conn.readTimeout = 5000
+                        conn.requestMethod = "HEAD"
+                        conn.connect()
+                        val code = conn.responseCode
+                        conn.disconnect()
+                        if (code in 200..403) (System.currentTimeMillis() - start).toInt() else -2
+                    } catch (e: Exception) { -2 }
+                    withContext(Dispatchers.Main) {
+                        services = services.toMutableList().also { it[i] = svc.copy(pingMs = ping) }
+                    }
                 }
             }
+            // Перепроверяем каждые 30 секунд, пока подключено
+            delay(30_000L)
         }
     }
 
     LaunchedEffect(stats) {
         if (!isConnected) return@LaunchedEffect
-        val downBytes = Regex("""total_dtls-to-backend[:\s]+(\d+)""").find(stats)
+        // total_backend-to-dtls = rx = получено с сервера = DOWNLOAD
+        // total_dtls-to-backend = tx = отправлено на сервер = UPLOAD
+        val downBytes = Regex("""total_backend-to-dtls[:\s]+(\d+)""").find(stats)
             ?.groupValues?.get(1)?.toLongOrNull() ?: return@LaunchedEffect
-        val upBytes = Regex("""total_backend-to-dtls[:\s]+(\d+)""").find(stats)
+        val upBytes = Regex("""total_dtls-to-backend[:\s]+(\d+)""").find(stats)
             ?.groupValues?.get(1)?.toLongOrNull() ?: return@LaunchedEffect
         val now = System.currentTimeMillis()
         val dtSec = if (prevStatsTimeMs > 0L) (now - prevStatsTimeMs) / 1000f else 1f
