@@ -318,6 +318,13 @@ object TunnelManager {
         val mode = TunnelMode.from(params.tunnelMode)
         tunnelMode.value = mode
 
+        // libhev-socks5-tunnel uses RegisterNatives in JNI_OnLoad: FindClass only works
+        // when called from a thread that has the app class loader (main/UI thread).
+        // Pre-load here (before scope.launch) so the library is ready for background threads.
+        if (mode == TunnelMode.SPEED) {
+            try { System.loadLibrary("hev-socks5-tunnel") } catch (_: Throwable) {}
+        }
+
         scope.launch {
             try {
                 if (mode == TunnelMode.SPEED) {
