@@ -7,35 +7,40 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.webkit.*
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.app.NotificationCompat
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.*
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.random.Random
 
@@ -64,33 +69,26 @@ object ManlCaptchaWebViewManager {
     private const val CHANNEL_ID = "captcha_channel"
 
     private fun showCaptchaNotification(context: Context, redirectUri: String) {
-        if (MainActivity.isForeground) return // Если юзер уже в приложении — не спамим пушом
-        
+        if (MainActivity.isForeground) return
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Уведомления защиты (Капча)",
-                NotificationManager.IMPORTANCE_HIGH
+                CHANNEL_ID, "Уведомления защиты (Капча)", NotificationManager.IMPORTANCE_HIGH
             )
             notificationManager.createNotificationChannel(channel)
         }
-
         val openIntent = Intent(context, ManlCaptchaActivity::class.java).apply {
             putExtra("redirectUri", redirectUri)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
         }
-
         val openPendingIntent = PendingIntent.getActivity(
             context, 0, openIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-
         val cancelIntent = Intent(context, CaptchaCancelReceiver::class.java)
         val cancelPendingIntent = PendingIntent.getBroadcast(
             context, 1, cancelIntent, PendingIntent.FLAG_IMMUTABLE
         )
-
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("Требуется подтверждение капчи")
@@ -100,7 +98,6 @@ object ManlCaptchaWebViewManager {
             .setAutoCancel(true)
             .addAction(0, "Отменить и выключить", cancelPendingIntent)
             .build()
-
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
@@ -113,19 +110,18 @@ object ManlCaptchaWebViewManager {
         return captchaMutex.withLock {
             isCaptchaPending = true
             val deferred = CompletableDeferred<Result<String>>()
-            // Если предыдущий вызов завис, отменяем его
             pendingResult.getAndSet(deferred)?.cancel()
 
             showCaptchaNotification(context, redirectUri)
 
             val intent = Intent(context, ManlCaptchaActivity::class.java).apply {
                 putExtra("redirectUri", redirectUri)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
             }
             pendingIntentToStart = intent
 
             if (MainActivity.isForeground) {
-                // Запускаем окно только если интерфейс приложения активен (иначе Android блокирует старт)
                 context.startActivity(intent)
             }
 
@@ -156,7 +152,16 @@ object ManlCaptchaWebViewManager {
     }
 }
 
+/** Статус авто-решения капчи */
+enum class AutoSolveStatus { Loading, AutoTrying, Manual, Done }
+
 class ManlCaptchaActivity : ComponentActivity() {
+
+    private val autoSolveStatus = MutableStateFlow(AutoSolveStatus.Loading)
+    private var captchaWebViewRef: WebView? = null
+    private var autoSolveTriggered = false
+
+    // ── Перехватчик success_token из fetch/XHR ────────────────────────────────
     private val interceptorJSCode = """
         (function() {
             if (window.__wdtt_interceptor_installed) return;
@@ -181,7 +186,7 @@ class ManlCaptchaActivity : ComponentActivity() {
                 }
                 return origFetch.apply(this, args);
             };
-            
+
             const origXHROpen = XMLHttpRequest.prototype.open;
             const origXHRSend = XMLHttpRequest.prototype.send;
             XMLHttpRequest.prototype.open = function(method, url) {
@@ -207,9 +212,9 @@ class ManlCaptchaActivity : ComponentActivity() {
         })();
     """.trimIndent()
 
+    // ── Стили: скрываем лишнее, оставляем только виджет капчи ────────────────
     private val hideElementsJSCode = """
         (function() {
-            // Перехватываем клик по нативному крестику ВК, чтобы закрывать Android Activity и останавливать туннель
             document.addEventListener('click', function(e) {
                 if (e.target.closest('.vkc__ModalCardBase-module__dismiss')) {
                     window.WdttCaptcha.onCancelAndStop();
@@ -218,7 +223,6 @@ class ManlCaptchaActivity : ComponentActivity() {
 
             const style = document.createElement('style');
             style.innerHTML = `
-                /* Скрываем серый фон, лого, id, ссылку и кнопку АУДИО (крестик ВК оставляем!) */
                 .vkc__VisuallyHiddenModalOverlay-module__host,
                 .vkc__ModalOverlay-module__host,
                 .vkc__KaleidoscopeScreen-module__logoBlock,
@@ -227,107 +231,124 @@ class ManlCaptchaActivity : ComponentActivity() {
                 .vkc__SliderCaptcha-module__changeTypeButton {
                     display: none !important;
                 }
-                
-                /* Основной фон вокруг окна - прозрачный прозрачным, убираем тени */
                 body, html, .vkc__ModalCard-module__host, .vkc__AppRoot-module__host, .vkui__root {
                     background: transparent !important;
                     box-shadow: none !important;
                 }
-                
-                /* Сама карточка (окно) - фон чёрный */
                 .vkc__ModalCardBase-module__container {
                     background: #000000 !important;
                     box-shadow: none !important;
                 }
-
-                /* Стилизуем крестик ВК: левее, меньше, красный */
                 .vkc__ModalCardBase-module__dismiss {
                     color: #ef4444 !important;
                     transform: scale(0.8) translateX(-12px) !important;
                 }
-                .vkc__ModalCardBase-module__dismiss svg {
-                    fill: #ef4444 !important;
-                }
-
-                /* Текст "Обновить" и описание капчи делаем белыми */
-                .vkc__RefreshButton-module__text,
-                .vkc__SliderCaptcha-module__description {
-                    color: #ffffff !important;
-                }
-
-                /* Поле (трек), где нужно потянуть вправо - делаем белым */
-                .vkc__SwipeButton-module__track {
-                    background-color: #ffffff !important;
-                }
-
-                /* Текст "Потяните вправо" внутри трека - делаем синим */
-                .vkc__SwipeButton-module__track span {
-                    color: #0000FF !important;
-                }
+                .vkc__ModalCardBase-module__dismiss svg { fill: #ef4444 !important; }
+                .vkc__RefreshButton-module__text, .vkc__SliderCaptcha-module__description { color: #ffffff !important; }
+                .vkc__SwipeButton-module__track { background-color: #ffffff !important; }
+                .vkc__SwipeButton-module__track span { color: #0000FF !important; }
             `;
             document.head.appendChild(style);
         })();
     """.trimIndent()
 
+    // ── Поиск кликабельного элемента капчи (в CSS-пикселях * devicePixelRatio) ─
+    private val findCaptchaElementJS = """
+        (function() {
+            const dpr = window.devicePixelRatio || 1;
+            // Чекбокс ("Я не робот")
+            const checkboxSels = [
+                '.vkc__CheckboxCaptchaWidget-module__box',
+                '.vkc__Checkbox-module__root',
+                '[class*="CheckboxCaptcha"][class*="box"]',
+                '[class*="not_robot"][class*="checkbox"]',
+                '[class*="Checkbox"][class*="widget"]',
+            ];
+            for (const s of checkboxSels) {
+                const el = document.querySelector(s);
+                if (el) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0) {
+                        return JSON.stringify({found:true, type:'checkbox',
+                            x: (r.left + r.width/2) * dpr,
+                            y: (r.top  + r.height/2) * dpr});
+                    }
+                }
+            }
+            // Слайдер ("Потяните вправо")
+            const sliderSels = [
+                '.vkc__SwipeButton-module__track',
+                '[class*="SwipeButton"][class*="track"]',
+                '[class*="SliderCaptcha"][class*="track"]',
+            ];
+            for (const s of sliderSels) {
+                const el = document.querySelector(s);
+                if (el) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 10 && r.height > 0) {
+                        // Начинаем с позиции ~15px от левого края трека
+                        return JSON.stringify({found:true, type:'slider',
+                            x: (r.left + 15) * dpr,
+                            y: (r.top  + r.height/2) * dpr,
+                            w: r.width * dpr});
+                    }
+                }
+            }
+            return JSON.stringify({found:false});
+        })()
+    """.trimIndent()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ManlCaptchaWebViewManager.activeActivity = this
-        MainActivity.isForeground = true // Если появилось само окно капчи, мы тоже считаемся в фореграунде
+        MainActivity.isForeground = true
         val redirectUri = intent.getStringExtra("redirectUri") ?: return finish()
 
         setContent {
+            val solveStatus by autoSolveStatus.collectAsState()
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        var isLoading by rememberSaveable { mutableStateOf(true) }
-                        
-                        Box {
-                            Surface(
-                                modifier = Modifier.fillMaxSize(),
-                                color = Color.Transparent,
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp
-                            ) {
-                                AndroidView(
-                                    modifier = Modifier.fillMaxSize(),
-                                    factory = { ctx ->
-                                        WebView(ctx).apply {
-                                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                            layoutParams = ViewGroup.LayoutParams(
-                                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                                ViewGroup.LayoutParams.MATCH_PARENT
-                                            )
+
+                    // WebView — всегда загружен (в т.ч. во время авто-решения)
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
                                 settings.apply {
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
+                                    @Suppress("DEPRECATION")
                                     databaseEnabled = true
                                     mediaPlaybackRequiresUserGesture = false
                                     loadWithOverviewMode = true
                                     useWideViewPort = true
                                     blockNetworkLoads = false
-                                    cacheMode = WebSettings.LOAD_DEFAULT // Включаем кэш для моментальной загрузки!
-                                    userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                                    cacheMode = WebSettings.LOAD_DEFAULT
+                                    userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                                 }
 
                                 addJavascriptInterface(object {
                                     @JavascriptInterface
                                     fun onSuccess(token: String) {
-                                        Log.d("ManlCaptchaWV", "Token received")
+                                        Log.d("ManlCaptchaWV", "Token received — auto=${autoSolveStatus.value}")
+                                        autoSolveStatus.value = AutoSolveStatus.Done
                                         ManlCaptchaWebViewManager.notifyResult(Result.success(token))
                                         finish()
                                     }
                                     @JavascriptInterface
                                     fun onError(err: String) {
                                         Log.e("ManlCaptchaWV", "Error: $err")
-                                        ManlCaptchaWebViewManager.notifyResult(Result.failure(Exception("VK Captcha error: ${'$'}err")))
+                                        ManlCaptchaWebViewManager.notifyResult(Result.failure(Exception("VK Captcha error: $err")))
                                         finish()
                                     }
                                     @JavascriptInterface
                                     fun onCancelAndStop() {
-                                        Log.d("ManlCaptchaWV", "User clicked VK Close. Stopping tunnel.")
+                                        Log.d("ManlCaptchaWV", "User clicked VK Close — stopping tunnel")
                                         TunnelManager.stop()
                                         ManlCaptchaWebViewManager.notifyResult(Result.failure(Exception("Cancelled and stopped by user")))
                                         finish()
@@ -343,21 +364,66 @@ class ManlCaptchaActivity : ComponentActivity() {
                                         super.onPageFinished(view, url)
                                         view?.evaluateJavascript(interceptorJSCode, null)
                                         view?.evaluateJavascript(hideElementsJSCode, null)
-                                        isLoading = false
+
+                                        // Запускаем авто-решение один раз
+                                        if (!autoSolveTriggered) {
+                                            autoSolveTriggered = true
+                                            captchaWebViewRef = view as? WebView
+                                            autoSolveStatus.value = AutoSolveStatus.AutoTrying
+                                            lifecycleScope.launch {
+                                                delay(1500L) // Ждём инициализации виджета
+                                                launchAutoSolve(view as? WebView ?: return@launch)
+                                            }
+                                        }
                                     }
                                 }
                                 webChromeClient = WebChromeClient()
                                 loadUrl(redirectUri)
-                                }
-                            })
+                                captchaWebViewRef = this
                             }
-                            
-                            // Индикатор загрузки, пока страница белая/прозрачная
-                            if (isLoading) {
+                        }
+                    )
+
+                    // ── Overlay: авто-решение / загрузка ─────────────────────
+                    AnimatedVisibility(
+                        visible = solveStatus == AutoSolveStatus.Loading || solveStatus == AutoSolveStatus.AutoTrying,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF0D0D1E)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.align(Alignment.Center).size(48.dp),
-                                    color = MaterialTheme.colorScheme.primary
+                                    modifier = Modifier.size(48.dp),
+                                    color = Color(0xFF6366F1),
+                                    strokeWidth = 3.dp
                                 )
+                                Text(
+                                    if (solveStatus == AutoSolveStatus.Loading) "Загружаем защиту ВК…"
+                                    else "Пробуем решить автоматически…",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                if (solveStatus == AutoSolveStatus.AutoTrying) {
+                                    TextButton(
+                                        onClick = { autoSolveStatus.value = AutoSolveStatus.Manual },
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Text(
+                                            "Решить вручную",
+                                            color = Color(0xFF6366F1),
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -366,15 +432,115 @@ class ManlCaptchaActivity : ComponentActivity() {
         }
     }
 
+    // ── Авто-решение: находим элемент через JS → кликаем MotionEvent ─────────
+
+    private fun launchAutoSolve(webView: WebView) {
+        var retries = 0
+        fun tryNext() {
+            if (autoSolveStatus.value != AutoSolveStatus.AutoTrying) return
+            webView.evaluateJavascript(findCaptchaElementJS) { rawResult ->
+                if (autoSolveStatus.value != AutoSolveStatus.AutoTrying) return@evaluateJavascript
+                try {
+                    val json = JSONObject(
+                        rawResult.trim().removeSurrounding("\"").replace("\\\"", "\"")
+                    )
+                    val found = json.optBoolean("found", false)
+                    if (!found) {
+                        // Элемент ещё не отрисован — повторяем каждую секунду (до 5 раз)
+                        retries++
+                        if (retries >= 5) {
+                            Log.d("AutoCaptcha", "Element not found after $retries retries — showing manual")
+                            autoSolveStatus.value = AutoSolveStatus.Manual
+                            return@evaluateJavascript
+                        }
+                        lifecycleScope.launch {
+                            delay(1000)
+                            tryNext()
+                        }
+                        return@evaluateJavascript
+                    }
+
+                    val type = json.optString("type", "checkbox")
+                    val x = json.optDouble("x", 0.0).toFloat()
+                    val y = json.optDouble("y", 0.0).toFloat()
+                    Log.d("AutoCaptcha", "Element found: type=$type x=$x y=$y")
+
+                    lifecycleScope.launch {
+                        // Небольшая случайная задержка перед кликом (как у живого пользователя)
+                        delay(300L + Random.nextLong(400))
+
+                        if (type == "slider") {
+                            val w = json.optDouble("w", 200.0).toFloat()
+                            simulateSwipe(webView, x, y, w)
+                        } else {
+                            simulateTap(webView, x, y)
+                        }
+
+                        // Если за 5 секунд success_token не пришёл → показываем вручную
+                        delay(5_000)
+                        if (autoSolveStatus.value == AutoSolveStatus.AutoTrying) {
+                            Log.d("AutoCaptcha", "Auto-solve timed out — switching to manual")
+                            autoSolveStatus.value = AutoSolveStatus.Manual
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("AutoCaptcha", "JSON parse error: $e raw=$rawResult")
+                    autoSolveStatus.value = AutoSolveStatus.Manual
+                }
+            }
+        }
+        tryNext()
+    }
+
+    /**
+     * Симулирует реальный tap через MotionEvent.
+     * Создаёт нативное касание → WebView передаёт в JS как isTrusted=true.
+     */
+    private fun simulateTap(view: WebView, x: Float, y: Float) {
+        val downTime = SystemClock.uptimeMillis()
+        val holdMs = 60L + Random.nextLong(40) // 60–100ms — как у реального пальца
+        val up = MotionEvent.obtain(downTime, downTime + holdMs, MotionEvent.ACTION_UP, x, y, 0)
+        val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)
+        view.dispatchTouchEvent(down)
+        view.dispatchTouchEvent(up)
+        down.recycle()
+        up.recycle()
+        Log.d("AutoCaptcha", "Tap dispatched at ($x, $y)")
+    }
+
+    /**
+     * Симулирует реальный свайп для слайдера.
+     * Плавное движение с ease-in-out кривой и лёгким вертикальным дрейфом.
+     */
+    private fun simulateSwipe(view: WebView, startX: Float, y: Float, trackWidth: Float) {
+        val endX = startX + trackWidth * 0.90f   // до 90% длины трека
+        val downTime = SystemClock.uptimeMillis()
+        val totalMs = 500L + Random.nextLong(200) // 500–700ms
+        val steps = 30
+
+        view.dispatchTouchEvent(MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, startX, y, 0))
+
+        for (i in 1..steps) {
+            val t = i.toFloat() / steps
+            // Ease-in-out: медленно → быстро → медленно
+            val eased = t * t * (3 - 2 * t)
+            val cx = startX + (endX - startX) * eased
+            val jitter = (Random.nextFloat() - 0.5f) * 2f // ±1px вертикальный дрейф
+            val eventTime = downTime + (totalMs * t).toLong()
+            view.dispatchTouchEvent(MotionEvent.obtain(downTime, eventTime, MotionEvent.ACTION_MOVE, cx, y + jitter, 0))
+        }
+
+        val upTime = downTime + totalMs + 20
+        view.dispatchTouchEvent(MotionEvent.obtain(downTime, upTime, MotionEvent.ACTION_UP, endX, y, 0))
+        Log.d("AutoCaptcha", "Swipe dispatched from $startX to $endX (track=$trackWidth)")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         MainActivity.isForeground = false
         if (ManlCaptchaWebViewManager.activeActivity === this) {
             ManlCaptchaWebViewManager.activeActivity = null
         }
-        // Мы НЕ отправляем ошибку здесь! 
-        // Если юзер смахнул окно (нажал назад), капча останется висеть в памяти (через пуш).
-        // Ошибка или Успех отправляются только по явным действиям (крестик, решение, или таймаут 5 мин).
     }
 }
 
@@ -383,6 +549,6 @@ class CaptchaCancelReceiver : BroadcastReceiver() {
         TunnelManager.stop()
         ManlCaptchaWebViewManager.activeActivity?.finish()
         val notifMgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notifMgr.cancel(9001) // NOTIFICATION_ID
+        notifMgr.cancel(9001)
     }
 }
