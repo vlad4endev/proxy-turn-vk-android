@@ -44,6 +44,10 @@ type Config struct {
 	AutoSolver   AutoSolveFunc
 	ManualSolver ManualSolveFunc
 
+	// CacheFile — путь к файлу персистентного кэша TURN-credentials.
+	// Пустая строка отключает сохранение на диск.
+	CacheFile string
+
 	// Log — уровневый логгер. nil → no-op.
 	Log logx.Logger
 }
@@ -88,7 +92,7 @@ func New(cfg Config) *Client {
 		autoSolver:  cfg.AutoSolver,
 		manualSolve: cfg.ManualSolver,
 		log:         cfg.Log,
-		store:       NewStore(cfg.StreamsPerCache),
+		store:       NewStore(cfg.StreamsPerCache, cfg.CacheFile),
 	}
 	if len(c.credentials) == 0 {
 		c.credentials = DefaultCredentials
@@ -144,6 +148,8 @@ func (c *Client) GetCredentials(ctx context.Context, link string, streamID int) 
 		Link:        link,
 	}
 	addr := addrs[streamID%len(addrs)]
+	// Сохраняем на диск в фоне — не блокируем поток авторизации
+	go c.store.SaveToFile()
 	return user, pass, addr, nil
 }
 

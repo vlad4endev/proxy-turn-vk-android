@@ -697,6 +697,7 @@ object TunnelManager {
                     else -> "wv"
                 }
 
+                val credsCacheFile = "${context.filesDir.absolutePath}/vk_creds_cache.json"
                 val cmd = mutableListOf(
                     binaryPath,
                     "-peer", params.peer,
@@ -706,7 +707,8 @@ object TunnelManager {
                     "-obf-key", ServerConfig.OBF_KEY,
                     "-provider", providerFlag,
                     "-n", totalWorkers.toString(),
-                    "-captcha-mode", effectiveCaptchaMode
+                    "-captcha-mode", effectiveCaptchaMode,
+                    "-creds-cache", credsCacheFile
                 )
 
                 val pb = ProcessBuilder(cmd)

@@ -37,6 +37,10 @@ type Config struct {
 	// StreamsPerCache — делитель streamID → cacheID. <=0 → дефолт (10).
 	StreamsPerCache int
 
+	// CacheFile — путь к файлу персистентного кэша TURN-credentials.
+	// Пустая строка отключает персистентность.
+	CacheFile string
+
 	// StreamsAlive возвращает число подключённых потоков; vkauth использует
 	// для решения, является ли исчерпанная captcha фатальной или throttle.
 	StreamsAlive func() int32
@@ -78,6 +82,7 @@ func New(cfg Config, solver ManualSolverFunc) (*Provider, error) {
 		ManualOnly:      cfg.ManualOnly,
 		CaptchaMode:     cfg.CaptchaMode,
 		StreamsPerCache: cfg.StreamsPerCache,
+		CacheFile:       cfg.CacheFile,
 		StreamsAlive:    cfg.StreamsAlive,
 		ManualSolver:    solver,
 		Log:             cfg.Log,

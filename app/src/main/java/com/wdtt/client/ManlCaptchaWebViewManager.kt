@@ -12,18 +12,21 @@ import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.*
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.app.NotificationCompat
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -309,14 +312,39 @@ class ManlCaptchaActivity : ComponentActivity() {
         MainActivity.isForeground = true
         val redirectUri = intent.getStringExtra("redirectUri") ?: return finish()
 
+        // Начинаем прозрачными — пользователь ничего не видит во время авто-решения.
+        // Когда авто-решение провалится, окно станет видимым для ручного ввода.
+        setWindowMode(transparent = true)
+
+        // Следим за статусом авто-решения и переключаем прозрачность
+        lifecycleScope.launch {
+            autoSolveStatus.collect { status ->
+                setWindowMode(transparent = (status == AutoSolveStatus.Trying))
+            }
+        }
+
         setContent {
             val solveStatus by autoSolveStatus.collectAsState()
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-                Box(modifier = Modifier.fillMaxSize()) {
+            val showManual = solveStatus == AutoSolveStatus.Idle
 
-                    // WebView — виден СРАЗУ, пользователь может решить вручную в любой момент
+            val bgColor by animateColorAsState(
+                targetValue = if (showManual) Color(0xFF0D0D1E) else Color.Transparent,
+                animationSpec = tween(300),
+                label = "bg"
+            )
+
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(bgColor)
+                ) {
+                    // WebView — ВСЕГДА загружен в фоне (нужен для interceptor и MotionEvent).
+                    // Invisible во время авто-решения, visible для ручного.
                     AndroidView(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = if (showManual) 1f else 0f },
                         factory = { ctx ->
                             WebView(ctx).apply {
                                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -345,7 +373,6 @@ class ManlCaptchaActivity : ComponentActivity() {
                                         Log.d("ManlCaptchaWV", "✓ Token received (status=${autoSolveStatus.value})")
                                         autoSolveStatus.value = AutoSolveStatus.Done
                                         ManlCaptchaWebViewManager.notifyResult(Result.success(token))
-                                        // finish() должен вызываться на UI-треде
                                         runOnUiThread { finish() }
                                     }
                                     @JavascriptInterface
@@ -381,7 +408,6 @@ class ManlCaptchaActivity : ComponentActivity() {
                                         view?.evaluateJavascript(interceptorJSCode, null)
                                         view?.evaluateJavascript(hideElementsJSCode, null)
 
-                                        // Авто-решение — только один раз на первую загрузку
                                         if (!autoSolveTriggered && view != null) {
                                             autoSolveTriggered = true
                                             lifecycleScope.launch {
@@ -396,25 +422,35 @@ class ManlCaptchaActivity : ComponentActivity() {
                         }
                     )
 
-                    // ── Маленький ненавязчивый баннер (не блокирует WebView) ──
-                    if (solveStatus == AutoSolveStatus.Trying) {
-                        Box(
+                    // Кнопка закрытия — только когда виден ручной режим
+                    if (showManual) {
+                        Text(
+                            "Решите капчу вручную ↑",
                             modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 12.dp)
-                                .background(Color(0xCC1A1A2E), RoundedCornerShape(20.dp))
-                                .padding(horizontal = 14.dp, vertical = 7.dp)
-                        ) {
-                            Text(
-                                "Пробуем решить автоматически…",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 24.dp),
+                            color = Color(0xFF6366F1),
+                            fontSize = 13.sp
+                        )
                     }
                 }
             }
+        }
+    }
+
+    // Управляет прозрачностью окна: transparent=true → пользователь ничего не видит,
+    // тачи сквозь — transparent=false → тёмное окно с WebView для ручного решения.
+    private fun setWindowMode(transparent: Boolean) {
+        if (transparent) {
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            )
+        } else {
+            window.clearFlags(
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            )
         }
     }
 
