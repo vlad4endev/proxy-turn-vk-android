@@ -41,6 +41,12 @@ class Tun2SocksHelper(private val vpnService: VpnService) {
 
         @JvmStatic
         private external fun TProxyStopService()
+
+        // Required by libhev-socks5-tunnel.so RegisterNatives (()[J descriptor).
+        // JNI_OnLoad registers all three methods; if this is missing, RegisterNatives
+        // fails and TProxyStartService/TProxyStopService are never bound either.
+        @JvmStatic
+        external fun TProxyGetStats(): LongArray
     }
 
     init {
@@ -140,17 +146,20 @@ misc:
         // сразу после старта потока (не после возврата TProxyStartService).
         val configPath  = configFile.absolutePath
         val fdInt       = tunFd!!.fd
+        val threadError = arrayOfNulls<String>(1) // [0] written by thread, read after join/sleep
         proxyThread = Thread {
-            Log.i(TAG, "hev-socks5-tunnel thread started")
+            Log.i(TAG, "hev-socks5-tunnel thread started, fd=$fdInt cfg=$configPath")
             try {
                 TProxyStartService(configPath, fdInt)
             } catch (e: UnsatisfiedLinkError) {
-                Log.e(TAG, "libhev-socks5-tunnel.so не найден: ${e.message}")
-            } catch (e: Exception) {
-                Log.e(TAG, "TProxyStartService exception: ${e.message}")
+                threadError[0] = "UnsatisfiedLinkError: ${e.message}"
+                Log.e(TAG, "TProxyStartService UnsatisfiedLinkError: ${e.message}")
+            } catch (e: Throwable) {
+                threadError[0] = "${e::class.java.simpleName}: ${e.message}"
+                Log.e(TAG, "TProxyStartService threw: ${e.message}")
             } finally {
                 _running.set(false)
-                Log.i(TAG, "hev-socks5-tunnel thread exited")
+                Log.i(TAG, "hev-socks5-tunnel thread exited, error=${threadError[0]}")
             }
         }.also {
             it.isDaemon = true
@@ -164,8 +173,9 @@ misc:
         if (!proxyThread!!.isAlive) {
             tunFd?.close()
             tunFd = null
+            val reason = threadError[0] ?: "нет исключений — hev вернулся немедленно (config/fd?)"
             throw IllegalStateException(
-                "hev-socks5-tunnel завершился немедленно — libhev-socks5-tunnel.so не загружен или некорректный fd"
+                "hev-socks5-tunnel завершился немедленно: $reason"
             )
         }
 
