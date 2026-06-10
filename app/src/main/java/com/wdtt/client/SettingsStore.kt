@@ -112,7 +112,12 @@ class SettingsStore(context: Context) {
         private val SUB_SERVERS = stringPreferencesKey("sub_servers")
         private val SUB_SELECTED = intPreferencesKey("sub_selected")
         private val SUB_UPDATED_AT = longPreferencesKey("sub_updated_at")
-        private val SUB_EXPIRE_AT = longPreferencesKey("sub_expire_at")
+        private val SUB_EXPIRE_AT  = longPreferencesKey("sub_expire_at")
+        private val SUB_TITLE      = stringPreferencesKey("sub_title")
+        private val SUB_UPLOAD     = longPreferencesKey("sub_upload")
+        private val SUB_DOWNLOAD   = longPreferencesKey("sub_download")
+        private val SUB_TOTAL      = longPreferencesKey("sub_total")
+        private val SUB_ANNOUNCE   = stringPreferencesKey("sub_announce")
         private val XRAY_ROUTING_MODE = stringPreferencesKey("xray_routing_mode")
 
         private fun <T> getProfileKey(baseKey: Preferences.Key<T>, profile: Int): Preferences.Key<T> {
@@ -655,6 +660,21 @@ class SettingsStore(context: Context) {
     suspend fun saveSubExpireAt(timestamp: Long) {
         dataStore.edit { prefs -> prefs[SUB_EXPIRE_AT] = timestamp }
     }
+
+    fun getSubTitle(): String = runBlocking { dataStore.data.first()[SUB_TITLE] ?: "" }
+    suspend fun saveSubTitle(v: String) { dataStore.edit { it[SUB_TITLE] = v } }
+
+    fun getSubUpload(): Long = runBlocking { dataStore.data.first()[SUB_UPLOAD] ?: 0L }
+    suspend fun saveSubUpload(v: Long) { dataStore.edit { it[SUB_UPLOAD] = v } }
+
+    fun getSubDownload(): Long = runBlocking { dataStore.data.first()[SUB_DOWNLOAD] ?: 0L }
+    suspend fun saveSubDownload(v: Long) { dataStore.edit { it[SUB_DOWNLOAD] = v } }
+
+    fun getSubTotal(): Long = runBlocking { dataStore.data.first()[SUB_TOTAL] ?: 0L }
+    suspend fun saveSubTotal(v: Long) { dataStore.edit { it[SUB_TOTAL] = v } }
+
+    fun getSubAnnounce(): String = runBlocking { dataStore.data.first()[SUB_ANNOUNCE] ?: "" }
+    suspend fun saveSubAnnounce(v: String) { dataStore.edit { it[SUB_ANNOUNCE] = v } }
 
     // ═══ Xray Routing Mode ═══
 

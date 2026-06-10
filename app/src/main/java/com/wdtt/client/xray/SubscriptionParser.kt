@@ -11,19 +11,39 @@ import java.net.Socket
 import java.net.URL
 
 /**
- * Результат загрузки подписки.
- * [expireAt] = Unix-timestamp (секунды) срока действия, или 0 если не указан.
+ * Полная информация из заголовка Subscription-Userinfo.
+ * [total] = 0 означает безлимитный трафик (∞).
+ * [expireAt] = 0 означает бессрочную подписку.
+ */
+data class SubscriptionUserInfo(
+    val upload: Long = 0L,
+    val download: Long = 0L,
+    val total: Long = 0L,     // 0 = unlimited
+    val expireAt: Long = 0L,  // 0 = no expiry
+)
+
+/**
+ * Результат загрузки подписки — серверы плюс полная мета-информация.
  */
 data class SubscriptionResult(
     val servers: List<VlessServer>,
+    // ── из Subscription-Userinfo ────────────────────────────────────────────
     val expireAt: Long = 0L,
+    val upload: Long = 0L,
+    val download: Long = 0L,
+    val total: Long = 0L,        // 0 = unlimited
+    // ── из прочих заголовков ────────────────────────────────────────────────
+    val title: String = "",      // Profile-Title (base64 или plain)
+    val announce: String = "",   // Announce (base64 или plain)
+    val supportUrl: String = "", // Support-Url
+    val updateInterval: Int = 0, // Profile-Update-Interval (hours)
 )
 
 object SubscriptionParser {
 
     /**
-     * Загружает подписку и возвращает серверы + дату истечения.
-     * Дата берётся из заголовка ответа `subscription-userinfo: expire=TIMESTAMP`.
+     * Загружает подписку, парсит все стандартные заголовки (Profile-Title, Announce,
+     * Subscription-Userinfo) и возвращает полный SubscriptionResult.
      */
     suspend fun fetchSubscription(url: String): SubscriptionResult {
         return withContext(Dispatchers.IO) {
@@ -37,25 +57,49 @@ object SubscriptionParser {
                 val code = connection.responseCode
                 if (code !in 200..299) throw IOException("HTTP $code")
 
-                // Читаем заголовок subscription-userinfo для expire
-                val expireAt = parseExpireFromHeader(
+                // ── Заголовки ────────────────────────────────────────────────
+                val userInfo = parseUserInfo(
                     connection.getHeaderField("subscription-userinfo")
                         ?: connection.getHeaderField("Subscription-Userinfo")
                 )
+                val title = decodeHeaderValue(
+                    connection.getHeaderField("profile-title")
+                        ?: connection.getHeaderField("Profile-Title")
+                )
+                val announce = decodeHeaderValue(
+                    connection.getHeaderField("announce")
+                        ?: connection.getHeaderField("Announce")
+                )
+                val supportUrl = connection.getHeaderField("support-url")
+                    ?: connection.getHeaderField("Support-Url") ?: ""
+                val updateInterval = (connection.getHeaderField("profile-update-interval")
+                    ?: connection.getHeaderField("Profile-Update-Interval"))
+                    ?.trim()?.toIntOrNull() ?: 0
 
+                // ── Тело ─────────────────────────────────────────────────────
                 val body = connection.inputStream.bufferedReader().use { it.readText() }
                 if (body.isBlank()) throw IOException("Пустой ответ")
 
-                // Fallback: if header didn't have expiry, try to find it in decoded body
-                val finalExpireAt = if (expireAt > 0L) expireAt else {
+                // Уточнение expire: заголовок → тело (fallback)
+                val expireAt = if (userInfo.expireAt > 0L) userInfo.expireAt else {
                     val decoded = try {
-                        String(android.util.Base64.decode(body.trim(), android.util.Base64.DEFAULT), Charsets.UTF_8)
+                        String(Base64.decode(body.trim(), Base64.DEFAULT), Charsets.UTF_8)
                     } catch (_: Exception) { body }
                     parseExpireFromBody(decoded)
                 }
 
                 val servers = parseSubscriptionBody(body)
-                SubscriptionResult(servers = servers, expireAt = finalExpireAt)
+                SubscriptionResult(
+                    servers        = servers,
+                    expireAt       = expireAt,
+                    upload         = userInfo.upload,
+                    download       = userInfo.download,
+                    total          = userInfo.total,
+                    title          = title,
+                    announce       = announce,
+                    supportUrl     = supportUrl,
+                    updateInterval = updateInterval,
+                )
             } finally {
                 connection.disconnect()
             }
@@ -63,27 +107,46 @@ object SubscriptionParser {
     }
 
     /**
-     * Парсит `upload=X; download=X; total=X; expire=1735689600` → Unix timestamp в секундах.
+     * Декодирует значение заголовка, которое может быть в формате `base64:XXXX`.
      */
-    fun parseExpireFromHeader(header: String?): Long {
-        if (header.isNullOrBlank()) return 0L
+    fun decodeHeaderValue(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
         return try {
-            val expireStr = header
-                .split(";")
-                .map { it.trim() }
-                .firstOrNull { it.startsWith("expire=") }
-                ?.removePrefix("expire=")
-                ?.trim()
-                ?: return 0L
-            expireStr.toLongOrNull() ?: 0L
+            if (raw.startsWith("base64:", ignoreCase = true)) {
+                String(Base64.decode(raw.substring(7), Base64.DEFAULT), Charsets.UTF_8).trim()
+            } else {
+                raw.trim()
+            }
         } catch (_: Exception) {
-            0L
+            raw.trim()
         }
     }
 
     /**
-     * Fallback: scan decoded subscription body for `expire=TIMESTAMP` or `expire:TIMESTAMP`
-     * patterns (10-digit Unix timestamp). Used when the `subscription-userinfo` header is absent.
+     * Парсит полный Subscription-Userinfo: `upload=X; download=X; total=X; expire=X`.
+     */
+    fun parseUserInfo(header: String?): SubscriptionUserInfo {
+        if (header.isNullOrBlank()) return SubscriptionUserInfo()
+        val map = header.split(";").associate { part ->
+            val idx = part.indexOf('=')
+            if (idx < 0) "" to 0L
+            else part.substring(0, idx).trim() to (part.substring(idx + 1).trim().toLongOrNull() ?: 0L)
+        }
+        return SubscriptionUserInfo(
+            upload    = map["upload"]   ?: 0L,
+            download  = map["download"] ?: 0L,
+            total     = map["total"]    ?: 0L,
+            expireAt  = map["expire"]   ?: 0L,
+        )
+    }
+
+    /**
+     * Парсит `upload=X; download=X; total=X; expire=1735689600` → Unix timestamp в секундах.
+     */
+    fun parseExpireFromHeader(header: String?): Long = parseUserInfo(header).expireAt
+
+    /**
+     * Fallback: scan decoded subscription body for `expire=TIMESTAMP` or `expire:TIMESTAMP`.
      */
     fun parseExpireFromBody(body: String): Long {
         val regex = Regex("""expire[=:]\s*(\d{10})""")

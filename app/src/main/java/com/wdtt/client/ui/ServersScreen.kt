@@ -12,9 +12,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
@@ -22,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -75,6 +78,11 @@ fun ServersScreen(
     var isPinging    by remember { mutableStateOf(false) }
     var error        by remember { mutableStateOf<String?>(null) }
     var routingMode  by remember { mutableStateOf(settingsStore.getRoutingMode()) }
+    var subTitle     by remember { mutableStateOf(settingsStore.getSubTitle()) }
+    var subUpload    by remember { mutableLongStateOf(settingsStore.getSubUpload()) }
+    var subDownload  by remember { mutableLongStateOf(settingsStore.getSubDownload()) }
+    var subTotal     by remember { mutableLongStateOf(settingsStore.getSubTotal()) }
+    var subAnnounce  by remember { mutableStateOf(settingsStore.getSubAnnounce()) }
 
     // Stable URL that drives the auto-refresh timer
     var savedSubUrl by remember { mutableStateOf(
@@ -127,10 +135,18 @@ fun ServersScreen(
                     val now = System.currentTimeMillis()
                     settingsStore.saveLastSubUpdate(now)
                     lastUpdate = now
-                    if (result.expireAt > 0L) {
-                        subExpireAt = result.expireAt
-                        settingsStore.saveSubExpireAt(result.expireAt)
-                    }
+                    subExpireAt = result.expireAt
+                    settingsStore.saveSubExpireAt(result.expireAt)
+                    subTitle    = result.title
+                    subUpload   = result.upload
+                    subDownload = result.download
+                    subTotal    = result.total
+                    subAnnounce = result.announce
+                    settingsStore.saveSubTitle(result.title)
+                    settingsStore.saveSubUpload(result.upload)
+                    settingsStore.saveSubDownload(result.download)
+                    settingsStore.saveSubTotal(result.total)
+                    settingsStore.saveSubAnnounce(result.announce)
                 }
             } catch (_: Exception) { /* silent */ }
             finally { isLoading = false }
@@ -148,10 +164,18 @@ fun ServersScreen(
                         val now = System.currentTimeMillis()
                         settingsStore.saveLastSubUpdate(now)
                         lastUpdate = now
-                        if (result.expireAt > 0L) {
-                            subExpireAt = result.expireAt
-                            settingsStore.saveSubExpireAt(result.expireAt)
-                        }
+                        subExpireAt = result.expireAt
+                        settingsStore.saveSubExpireAt(result.expireAt)
+                        subTitle    = result.title
+                        subUpload   = result.upload
+                        subDownload = result.download
+                        subTotal    = result.total
+                        subAnnounce = result.announce
+                        settingsStore.saveSubTitle(result.title)
+                        settingsStore.saveSubUpload(result.upload)
+                        settingsStore.saveSubDownload(result.download)
+                        settingsStore.saveSubTotal(result.total)
+                        settingsStore.saveSubAnnounce(result.announce)
                     }
                 } catch (_: Exception) { /* silent on background refresh */ }
             }
@@ -173,10 +197,18 @@ fun ServersScreen(
                 val now = System.currentTimeMillis()
                 settingsStore.saveLastSubUpdate(now)
                 lastUpdate = now
-                if (result.expireAt > 0L) {
-                    subExpireAt = result.expireAt
-                    settingsStore.saveSubExpireAt(result.expireAt)
-                }
+                subExpireAt = result.expireAt
+                settingsStore.saveSubExpireAt(result.expireAt)
+                subTitle    = result.title
+                subUpload   = result.upload
+                subDownload = result.download
+                subTotal    = result.total
+                subAnnounce = result.announce
+                settingsStore.saveSubTitle(result.title)
+                settingsStore.saveSubUpload(result.upload)
+                settingsStore.saveSubDownload(result.download)
+                settingsStore.saveSubTotal(result.total)
+                settingsStore.saveSubAnnounce(result.announce)
                 savedSubUrl = inputText
                 if (result.servers.isEmpty()) error = "Серверы не найдены"
             } catch (e: Exception) {
@@ -398,11 +430,16 @@ fun ServersScreen(
                         }
                     }
 
-                    // Expiry badge — always show once servers are loaded
-                    // (shows "дата не указана" if provider doesn't return expiry)
                     if (servers.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
-                        ExpiryBadge(expireAt = subExpireAt)
+                        SubscriptionInfoCard(
+                            title    = subTitle,
+                            upload   = subUpload,
+                            download = subDownload,
+                            total    = subTotal,
+                            expireAt = subExpireAt,
+                            announce = subAnnounce,
+                        )
                     }
 
                     Spacer(Modifier.height(4.dp))
@@ -640,6 +677,224 @@ private fun ExpiryBadge(expireAt: Long) {
     }
 }
 
+// ─── Subscription info card ───────────────────────────────────────────────────
+@Composable
+private fun SubscriptionInfoCard(
+    title: String,
+    upload: Long,
+    download: Long,
+    total: Long,
+    expireAt: Long,
+    announce: String,
+) {
+    val nowSec    = System.currentTimeMillis() / 1000L
+    val isActive  = expireAt == 0L || expireAt > nowSec
+    val daysLeft  = if (expireAt > 0L) TimeUnit.SECONDS.toDays(expireAt - nowSec) else Long.MAX_VALUE
+    val used      = upload + download
+    val progress  = if (total > 0L) (used.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+    val activeColor = SkyflowColors.Connected
+    val expiredColor = SkyflowColors.ErrorColor
+
+    Surface(
+        shape  = SkyflowShapes.Card,
+        color  = SkyflowColors.GlassSurfaceElevated,
+        border = BorderStroke(1.dp, SkyflowColors.BorderAccent),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            // ── Title + status badge ──────────────────────────────────────
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text       = title.ifBlank { "Подписка" },
+                    style      = MaterialTheme.typography.titleMedium,
+                    color      = SkyflowColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    maxLines   = 1,
+                    overflow   = TextOverflow.Ellipsis,
+                    modifier   = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (isActive) activeColor.copy(alpha = 0.12f) else expiredColor.copy(alpha = 0.12f)
+                ) {
+                    Row(
+                        modifier              = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(modifier = Modifier
+                            .size(6.dp)
+                            .background(if (isActive) activeColor else expiredColor, CircleShape)
+                        )
+                        Text(
+                            text       = if (isActive) "Активна" else "Истекла",
+                            style      = MaterialTheme.typography.labelSmall,
+                            color      = if (isActive) activeColor else expiredColor,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider(color = SkyflowColors.Border)
+            Spacer(Modifier.height(14.dp))
+
+            // ── Traffic section ───────────────────────────────────────────
+            Text("ТРАФИК", style = MaterialTheme.typography.labelSmall, color = SkyflowColors.TextMuted)
+            Spacer(Modifier.height(8.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("↑ Отправлено", style = MaterialTheme.typography.labelSmall, color = SkyflowColors.TextMuted)
+                    Text(
+                        formatBytes(upload),
+                        style      = MaterialTheme.typography.bodyMedium,
+                        color      = SkyflowColors.TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("↓ Загружено", style = MaterialTheme.typography.labelSmall, color = SkyflowColors.TextMuted)
+                    Text(
+                        formatBytes(download),
+                        style      = MaterialTheme.typography.bodyMedium,
+                        color      = SkyflowColors.TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Использовано", style = MaterialTheme.typography.labelSmall, color = SkyflowColors.TextMuted)
+                Text(
+                    text = if (total > 0L) "${formatBytes(used)} / ${formatBytes(total)}"
+                           else "${formatBytes(used)} / ∞",
+                    style      = MaterialTheme.typography.labelMedium,
+                    color      = when {
+                        total > 0L && progress >= 0.9f -> expiredColor
+                        total > 0L && progress >= 0.7f -> SkyflowColors.WarnColor
+                        else                           -> SkyflowColors.TextPrimary
+                    },
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            if (total > 0L) {
+                Spacer(Modifier.height(6.dp))
+                val barColor = when {
+                    progress >= 0.9f -> expiredColor
+                    progress >= 0.7f -> SkyflowColors.WarnColor
+                    else             -> SkyflowColors.Accent
+                }
+                LinearProgressIndicator(
+                    progress    = { progress },
+                    modifier    = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color       = barColor,
+                    trackColor  = SkyflowColors.Border
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider(color = SkyflowColors.Border)
+            Spacer(Modifier.height(14.dp))
+
+            // ── Expiry section ────────────────────────────────────────────
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector        = Icons.Default.DateRange,
+                        contentDescription = null,
+                        tint               = SkyflowColors.TextMuted,
+                        modifier           = Modifier.size(15.dp)
+                    )
+                    Text("Срок действия", style = MaterialTheme.typography.labelSmall, color = SkyflowColors.TextMuted)
+                }
+                Text(
+                    text = when {
+                        expireAt == 0L    -> "Бессрочно"
+                        !isActive         -> "Истекла"
+                        daysLeft < 1      -> "Сегодня"
+                        else              -> SimpleDateFormat("d MMM yyyy", Locale("ru")).format(Date(expireAt * 1000L))
+                    },
+                    style      = MaterialTheme.typography.labelMedium,
+                    color      = when {
+                        expireAt == 0L  -> activeColor
+                        !isActive       -> expiredColor
+                        daysLeft < 7    -> expiredColor
+                        daysLeft < 30   -> SkyflowColors.WarnColor
+                        else            -> SkyflowColors.TextPrimary
+                    },
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+
+    // ── Announce banner ───────────────────────────────────────────────────────
+    if (announce.isNotBlank()) {
+        Spacer(Modifier.height(8.dp))
+        Surface(
+            shape    = SkyflowShapes.Card,
+            color    = SkyflowColors.WarnColor.copy(alpha = 0.08f),
+            border   = BorderStroke(1.dp, SkyflowColors.WarnColor.copy(alpha = 0.25f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier              = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector        = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint               = SkyflowColors.WarnColor,
+                    modifier           = Modifier.size(16.dp).padding(top = 1.dp)
+                )
+                Text(
+                    text  = announce,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SkyflowColors.TextSecondary
+                )
+            }
+        }
+    }
+}
+
+// ─── Protocol badge ───────────────────────────────────────────────────────────
+@Composable
+private fun ProtocolBadge(label: String) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = SkyflowColors.GlassSurface
+    ) {
+        Text(
+            text     = label,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style    = MaterialTheme.typography.labelSmall,
+            color    = SkyflowColors.TextMuted,
+            fontSize = 10.sp
+        )
+    }
+}
+
 // ─── Server card ──────────────────────────────────────────────────────────────
 @Composable
 private fun ServerCard(
@@ -688,14 +943,13 @@ private fun ServerCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = SkyflowColors.TextSecondary
                 )
-                Text(
-                    buildString {
-                        append(server.security.uppercase())
-                        if (server.type != "tcp") append(" · ${server.type.uppercase()}")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SkyflowColors.TextMuted
-                )
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ProtocolBadge("VLESS")
+                    if (server.type.isNotBlank() && server.type != "tcp") ProtocolBadge(server.type.uppercase())
+                    else ProtocolBadge("TCP")
+                    if (server.security.isNotBlank() && server.security != "none") ProtocolBadge(server.security.uppercase())
+                }
             }
             when {
                 server.latency > 0 -> {
@@ -744,6 +998,14 @@ private fun fieldColors() = OutlinedTextFieldDefaults.colors(
 private fun formatTime(timestamp: Long): String {
     val fmt = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
     return fmt.format(Date(timestamp))
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val units  = arrayOf("B", "KB", "MB", "GB", "TB")
+    val idx    = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.lastIndex)
+    val value  = bytes / Math.pow(1024.0, idx.toDouble())
+    return if (idx == 0) "$bytes B" else "%.1f %s".format(value, units[idx])
 }
 
 private data class ExpiryColors(
