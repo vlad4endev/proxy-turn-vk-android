@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="app/src/main/ic_launcher-playstore.png" width="96" height="96" style="border-radius:22px" />
+<img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="96" height="96" />
 
 # SKYFLOW VPN
 
