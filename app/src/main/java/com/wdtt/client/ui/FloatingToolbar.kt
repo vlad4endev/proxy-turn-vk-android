@@ -24,7 +24,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
@@ -35,7 +34,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wdtt.client.R
-import android.os.Build
 import androidx.compose.ui.graphics.Color
 import kotlin.math.roundToInt
 
@@ -48,10 +46,6 @@ fun FloatingToolbar(
     onActiveProfileChange: (Int) -> Unit,
     currentTheme: String,
     onThemeChange: (String) -> Unit,
-    isDynamicColor: Boolean,
-    onDynamicColorChange: (Boolean) -> Unit,
-    currentPalette: String,
-    onPaletteChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
@@ -259,61 +253,6 @@ fun FloatingToolbar(
                         onClick = { onThemeChange("dark"); isExpanded = false }
                     )
 
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                    )
-
-                    val supportsDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                    val showDynamicColorOn = isDynamicColor && supportsDynamicColor
-                    val showPalettes = !showDynamicColorOn
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Динамические",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = if (supportsDynamicColor) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            }
-                        )
-                        Switch(
-                            checked = showDynamicColorOn,
-                            onCheckedChange = { onDynamicColorChange(it) },
-                            enabled = supportsDynamicColor,
-                            modifier = Modifier.scale(0.8f)
-                        )
-                    }
-
-                    AnimatedVisibility(visible = showPalettes) {
-                        Column {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 4.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                            )
-                            Text(
-                                "Палитра",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 6.dp, start = 4.dp)
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                PaletteCircle("indigo", 0xFF5B588D, currentPalette, onPaletteChange)
-                                PaletteCircle("forest", 0xFF5F5D68, currentPalette, onPaletteChange)
-                                PaletteCircle("espresso", 0xFF6D4C41, currentPalette, onPaletteChange)
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
-                    }
                 }
             }
         }
@@ -357,23 +296,3 @@ private fun ThemeOption(
     }
 }
 
-@Composable
-fun PaletteCircle(
-    paletteId: String,
-    colorHex: Long,
-    selectedId: String,
-    onClick: (String) -> Unit
-) {
-    val isSelected = paletteId == selectedId
-    Box(
-        modifier = Modifier
-            .size(30.dp)
-            .clip(CircleShape)
-            .background(Color(colorHex))
-            .clickable { onClick(paletteId) }
-            .then(
-                if (isSelected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                else Modifier
-            )
-    )
-}

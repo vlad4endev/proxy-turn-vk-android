@@ -106,13 +106,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settingsStore = remember { SettingsStore(this) }
             val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle(initialValue = "system")
-            val isDynamicColor by settingsStore.isDynamicColor.collectAsStateWithLifecycle(initialValue = false)
-            val themePalette by settingsStore.themePalette.collectAsStateWithLifecycle(initialValue = "indigo")
             val onboardingDone by settingsStore.onboardingDone.collectAsStateWithLifecycle(initialValue = false)
             val permissionsSetupDone by settingsStore.permissionsSetupDone.collectAsStateWithLifecycle(initialValue = false)
             val scope = rememberCoroutineScope()
 
-            WDTTTheme(themeMode = themeMode, dynamicColor = isDynamicColor, themePalette = themePalette) {
+            WDTTTheme(themeMode = themeMode) {
                 when {
                     !onboardingDone -> {
                         OnboardingScreen(
@@ -133,17 +131,7 @@ class MainActivity : ComponentActivity() {
                             settingsStore = settingsStore,
                             themeMode = themeMode,
                             onThemeChange = { mode ->
-                                scope.launch {
-                                    settingsStore.saveThemeMode(mode)
-                                }
-                            },
-                            isDynamicColor = isDynamicColor,
-                            onDynamicColorChange = { enabled ->
-                                scope.launch { settingsStore.saveDynamicColor(enabled) }
-                            },
-                            currentPalette = themePalette,
-                            onPaletteChange = { palette ->
-                                scope.launch { settingsStore.saveThemePalette(palette) }
+                                scope.launch { settingsStore.saveThemeMode(mode) }
                             }
                         )
                     }
@@ -175,10 +163,6 @@ fun MainScreen(
     settingsStore: SettingsStore,
     themeMode: String = "system",
     onThemeChange: (String) -> Unit = {},
-    isDynamicColor: Boolean = false,
-    onDynamicColorChange: (Boolean) -> Unit = {},
-    currentPalette: String = "indigo",
-    onPaletteChange: (String) -> Unit = {}
 ) {
     val unreadErrors by TunnelManager.unreadErrorCount.collectAsStateWithLifecycle()
     val tunnelRunning by TunnelManager.running.collectAsStateWithLifecycle()
@@ -366,11 +350,7 @@ fun MainScreen(
                 scope.launch { settingsStore.saveActiveProfile(profile) }
             },
             currentTheme = themeMode,
-            onThemeChange = onThemeChange,
-            isDynamicColor = isDynamicColor,
-            onDynamicColorChange = onDynamicColorChange,
-            currentPalette = currentPalette,
-            onPaletteChange = onPaletteChange
+            onThemeChange = onThemeChange
         )
     }
 

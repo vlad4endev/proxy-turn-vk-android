@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -24,95 +25,145 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wdtt.client.R
 
+// ── Глобальный стейт темы (обновляется из WDTTTheme) ──────────────────────────
+// Compose отслеживает чтение этого стейта и перерисовывает
+// все composable, которые обращаются к SkyflowColors.*.
+internal val _skyflowDarkTheme = mutableStateOf(true)
+
+/** Установить текущий режим (вызывается из WDTTTheme). */
+fun setSkyflowDarkTheme(isDark: Boolean) {
+    _skyflowDarkTheme.value = isDark
+}
+
 object SkyflowColors {
+    private val dark get() = _skyflowDarkTheme.value
+
     // ── Base ──────────────────────────────────────────────────────────────
-    val Background = Color(0xFF06060F)
-    val Surface = Color(0xFF12121F)
-    val SurfaceHigh = Color(0xFF1A1A2E)
-    val GlassSurface = Color(0xFF1C1C30).copy(alpha = 0.72f)
-    val GlassSurfaceElevated = Color(0xFF242438).copy(alpha = 0.85f)
-    val Border = Color(0xFF2A2A42)
-    val BorderAccent = Color(0xFF3D3D5C)
-    val BorderGlow = Color(0xFF6366F1).copy(alpha = 0.35f)
+    val Background get() = if (dark) Color(0xFF06060F) else Color(0xFFF4F4FF)
+    val Surface    get() = if (dark) Color(0xFF12121F) else Color(0xFFFFFFFF)
+    val SurfaceHigh get() = if (dark) Color(0xFF1A1A2E) else Color(0xFFEEEEFF)
+
+    val GlassSurface get() =
+        if (dark) Color(0xFF1C1C30).copy(alpha = 0.72f)
+        else Color(0xFFFFFFFF).copy(alpha = 0.82f)
+
+    val GlassSurfaceElevated get() =
+        if (dark) Color(0xFF242438).copy(alpha = 0.85f)
+        else Color(0xFFFAFAFF).copy(alpha = 0.95f)
+
+    val Border get() =
+        if (dark) Color(0xFF2A2A42) else Color(0xFFDDDDEE)
+
+    val BorderAccent get() =
+        if (dark) Color(0xFF3D3D5C) else Color(0xFFAAAACC)
+
+    val BorderGlow get() =
+        if (dark) Color(0xFF6366F1).copy(alpha = 0.35f)
+        else Color(0xFF6366F1).copy(alpha = 0.20f)
 
     // ── Accent ────────────────────────────────────────────────────────────
-    val Accent = Color(0xFF7C3AED)
-    val AccentLight = Color(0xFFA78BFA)
-    val AccentMuted = Color(0x287C3AED)
-    val AccentGlow = Color(0xFF7C3AED).copy(alpha = 0.22f)
+    val Accent      = Color(0xFF7C3AED)           // одинаково в обеих темах
+    val AccentLight get() =
+        if (dark) Color(0xFFA78BFA) else Color(0xFF6D28D9)
+    val AccentMuted = Color(0xFF7C3AED).copy(alpha = 0.16f)
+    val AccentGlow  get() =
+        if (dark) Color(0xFF7C3AED).copy(alpha = 0.22f)
+        else Color(0xFF7C3AED).copy(alpha = 0.10f)
 
     // ── Status ────────────────────────────────────────────────────────────
-    val Idle = Color(0xFF4B4B6A)
-    val Connecting = Color(0xFFFBBF24)
-    val Connected = Color(0xFF34D399)
-    val ConnectedDark = Color(0xFF065F46)
-    val CaptchaBlue = Color(0xFF3B82F6)   // кнопка синяя когда ожидает решения капчи
+    val Idle get() =
+        if (dark) Color(0xFF4B4B6A) else Color(0xFFAAAACC)
+    val Connecting  = Color(0xFFFBBF24)
+    val Connected get() =
+        if (dark) Color(0xFF34D399) else Color(0xFF059669)
+    val ConnectedDark get() =
+        if (dark) Color(0xFF065F46) else Color(0xFFA7F3D0)
+    val CaptchaBlue get() =
+        if (dark) Color(0xFF3B82F6) else Color(0xFF2563EB)
 
     // ── Text ──────────────────────────────────────────────────────────────
-    val TextPrimary = Color(0xFFF4F4F5)
-    val TextSecondary = Color(0xFF9CA3AF)
-    val TextMuted = Color(0xFF6B7280)
-    val TextAccent = Color(0xFFC4B5FD)
+    val TextPrimary get() =
+        if (dark) Color(0xFFF4F4F5) else Color(0xFF0D0D1A)
+    val TextSecondary get() =
+        if (dark) Color(0xFF9CA3AF) else Color(0xFF4B5563)
+    val TextMuted get() =
+        if (dark) Color(0xFF6B7280) else Color(0xFF9CA3AF)
+    val TextAccent get() =
+        if (dark) Color(0xFFC4B5FD) else Color(0xFF6D28D9)
 
     // ── Semantic ──────────────────────────────────────────────────────────
-    val ErrorColor = Color(0xFFF87171)
-    val WarnColor = Color(0xFFFBBF24)
+    val ErrorColor get() =
+        if (dark) Color(0xFFF87171) else Color(0xFFDC2626)
+    val WarnColor get() =
+        if (dark) Color(0xFFFBBF24) else Color(0xFFD97706)
 
     // ── Nav ───────────────────────────────────────────────────────────────
-    val NavBg = Color(0xFF0E0E1A).copy(alpha = 0.88f)
-    val NavBorder = Color(0xFF2A2A42).copy(alpha = 0.6f)
+    val NavBg get() =
+        if (dark) Color(0xFF0E0E1A).copy(alpha = 0.88f)
+        else Color(0xFFFFFFFF).copy(alpha = 0.94f)
+    val NavBorder get() =
+        if (dark) Color(0xFF2A2A42).copy(alpha = 0.6f)
+        else Color(0xFFE5E7EB).copy(alpha = 0.8f)
     val OnAccent = Color(0xFFFFFFFF)
 
     // ── Brand ─────────────────────────────────────────────────────────────
-    val LogoGradientTop = Color(0xFFFFFFFF)
-    val LogoGradientMid = Color(0xFFA78BFA)
+    val LogoGradientTop    = Color(0xFFFFFFFF)
+    val LogoGradientMid    = Color(0xFFA78BFA)
     val LogoGradientBottom = Color(0xFF7C3AED)
-    val BrandTitle = Color(0xFFF4F4F5)
+    val BrandTitle get() =
+        if (dark) Color(0xFFF4F4F5) else Color(0xFF0D0D1A)
 
-    // ── Traffic / providers ─────────────────────────────────────────────────
-    val RelayStripe = Color(0xFF34D399)
-    val VkStripe = Color(0xFF60A5FA)
-    val TrafficDown = Color(0xFF38BDF8)
-    val TrafficDownBar = Color(0xFF0EA5E9)
-    val NodeIdle = Color(0xFF2D2B52)
-    val Placeholder = Color(0xFF52526A)
-    val CheckboxBorder = Color(0xFF3D3D5C)
-    val AuthorAvatarBg = Color(0xFF1E1B4B)
-    val YandexTag = Color(0xFFFBBF24)
+    // ── Traffic / providers ───────────────────────────────────────────────
+    val RelayStripe get() =
+        if (dark) Color(0xFF34D399) else Color(0xFF059669)
+    val VkStripe get() =
+        if (dark) Color(0xFF60A5FA) else Color(0xFF2563EB)
+    val TrafficDown     = Color(0xFF38BDF8)
+    val TrafficDownBar  = Color(0xFF0EA5E9)
+    val NodeIdle get() =
+        if (dark) Color(0xFF2D2B52) else Color(0xFFE8E8FF)
+    val Placeholder get() =
+        if (dark) Color(0xFF52526A) else Color(0xFFAAAABB)
+    val CheckboxBorder get() =
+        if (dark) Color(0xFF3D3D5C) else Color(0xFFB0B0D0)
+    val AuthorAvatarBg get() =
+        if (dark) Color(0xFF1E1B4B) else Color(0xFFEDE9FE)
+    val YandexTag get() =
+        if (dark) Color(0xFFFBBF24) else Color(0xFFD97706)
 }
 
 object SkyflowGradients {
-    val Accent = Brush.linearGradient(
+    val Accent get() = Brush.linearGradient(
         colors = listOf(SkyflowColors.Accent, Color(0xFF6366F1))
     )
-    val Connected = Brush.linearGradient(
+    val Connected get() = Brush.linearGradient(
         colors = listOf(Color(0xFF34D399), Color(0xFF06B6D4))
     )
-    val Surface = Brush.verticalGradient(
+    val Surface get() = Brush.verticalGradient(
         colors = listOf(
             SkyflowColors.GlassSurfaceElevated,
             SkyflowColors.GlassSurface
         )
     )
-    val PowerIdle = Brush.radialGradient(
+    val PowerIdle get() = Brush.radialGradient(
         colors = listOf(
             SkyflowColors.SurfaceHigh,
             SkyflowColors.Background
         )
     )
-    val PowerConnected = Brush.radialGradient(
+    val PowerConnected get() = Brush.radialGradient(
         colors = listOf(
             SkyflowColors.Connected.copy(alpha = 0.18f),
             Color.Transparent
         )
     )
-    val PowerConnecting = Brush.radialGradient(
+    val PowerConnecting get() = Brush.radialGradient(
         colors = listOf(
             SkyflowColors.Connecting.copy(alpha = 0.15f),
             Color.Transparent
         )
     )
-    val PowerCaptcha = Brush.radialGradient(
+    val PowerCaptcha get() = Brush.radialGradient(
         colors = listOf(
             SkyflowColors.CaptchaBlue.copy(alpha = 0.20f),
             Color.Transparent
@@ -121,36 +172,40 @@ object SkyflowGradients {
 }
 
 object SkyflowShapes {
-    val Card = RoundedCornerShape(20.dp)
-    val Field = RoundedCornerShape(20.dp)
-    val Button = RoundedCornerShape(28.dp)
-    val Chip = RoundedCornerShape(14.dp)
-    val Tag = RoundedCornerShape(8.dp)
-    val Circle = CircleShape
-    val LogEntry = RoundedCornerShape(10.dp)
-    val AppCard = RoundedCornerShape(12.dp)
-    val SearchField = RoundedCornerShape(14.dp)
-    val ModeButton = RoundedCornerShape(10.dp)
-    val Logo = RoundedCornerShape(20.dp)
+    val Card         = RoundedCornerShape(20.dp)
+    val Field        = RoundedCornerShape(20.dp)
+    val Button       = RoundedCornerShape(28.dp)
+    val Chip         = RoundedCornerShape(14.dp)
+    val Tag          = RoundedCornerShape(8.dp)
+    val Circle       = CircleShape
+    val LogEntry     = RoundedCornerShape(10.dp)
+    val AppCard      = RoundedCornerShape(12.dp)
+    val SearchField  = RoundedCornerShape(14.dp)
+    val ModeButton   = RoundedCornerShape(10.dp)
+    val Logo         = RoundedCornerShape(20.dp)
     val VersionBadge = RoundedCornerShape(14.dp)
-    val LogTag = RoundedCornerShape(6.dp)
-    val Checkbox = RoundedCornerShape(6.dp)
-    val PasteButton = RoundedCornerShape(8.dp)
-    val NavBar = RoundedCornerShape(32.dp)
+    val LogTag       = RoundedCornerShape(6.dp)
+    val Checkbox     = RoundedCornerShape(6.dp)
+    val PasteButton  = RoundedCornerShape(8.dp)
+    val NavBar       = RoundedCornerShape(32.dp)
     val NavIndicator = RoundedCornerShape(24.dp)
 }
 
 object SkyflowBorders {
-    val Default = BorderStroke(0.5.dp, SkyflowColors.Border.copy(alpha = 0.7f))
-    val Accent = BorderStroke(0.5.dp, SkyflowColors.BorderAccent)
-    val Glass = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
-    val GlassAccent = BorderStroke(1.dp, SkyflowColors.Accent.copy(alpha = 0.25f))
-    val Focus = BorderStroke(1.5.dp, SkyflowColors.Accent)
-    val Success = BorderStroke(0.5.dp, SkyflowColors.ConnectedDark)
-    val Warning = BorderStroke(0.5.dp, Color(0xFF78350F))
-    val Error = BorderStroke(0.5.dp, Color(0xFF7F1D1D))
-    val Logo = BorderStroke(1.5.dp, SkyflowColors.Accent.copy(alpha = 0.45f))
-    val AuthorAvatar = BorderStroke(1.dp, SkyflowColors.Accent.copy(alpha = 0.4f))
+    val Default get() = BorderStroke(0.5.dp, SkyflowColors.Border.copy(alpha = 0.7f))
+    val Accent  get() = BorderStroke(0.5.dp, SkyflowColors.BorderAccent)
+    // Для тёмной — тонкий белый штрих; для светлой — тонкий тёмный штрих
+    val Glass   get() = BorderStroke(1.dp,
+        if (_skyflowDarkTheme.value) Color.White.copy(alpha = 0.08f)
+        else Color.Black.copy(alpha = 0.07f)
+    )
+    val GlassAccent get() = BorderStroke(1.dp, SkyflowColors.Accent.copy(alpha = 0.28f))
+    val Focus   get() = BorderStroke(1.5.dp, SkyflowColors.Accent)
+    val Success get() = BorderStroke(0.5.dp, SkyflowColors.ConnectedDark)
+    val Warning get() = BorderStroke(0.5.dp, SkyflowColors.WarnColor.copy(alpha = 0.6f))
+    val Error   get() = BorderStroke(0.5.dp, SkyflowColors.ErrorColor.copy(alpha = 0.6f))
+    val Logo    get() = BorderStroke(1.5.dp, SkyflowColors.Accent.copy(alpha = 0.45f))
+    val AuthorAvatar get() = BorderStroke(1.dp, SkyflowColors.Accent.copy(alpha = 0.4f))
 }
 
 @Composable
