@@ -112,6 +112,7 @@ class SettingsStore(context: Context) {
         private val SUB_SERVERS = stringPreferencesKey("sub_servers")
         private val SUB_SELECTED = intPreferencesKey("sub_selected")
         private val SUB_UPDATED_AT = longPreferencesKey("sub_updated_at")
+        private val SUB_EXPIRE_AT = longPreferencesKey("sub_expire_at")
         private val XRAY_ROUTING_MODE = stringPreferencesKey("xray_routing_mode")
 
         private fun <T> getProfileKey(baseKey: Preferences.Key<T>, profile: Int): Preferences.Key<T> {
@@ -645,6 +646,14 @@ class SettingsStore(context: Context) {
 
     suspend fun saveLastSubUpdate(timestamp: Long) {
         dataStore.edit { prefs -> prefs[SUB_UPDATED_AT] = timestamp }
+    }
+
+    fun getSubExpireAt(): Long = runBlocking {
+        dataStore.data.first()[SUB_EXPIRE_AT] ?: 0L
+    }
+
+    suspend fun saveSubExpireAt(timestamp: Long) {
+        dataStore.edit { prefs -> prefs[SUB_EXPIRE_AT] = timestamp }
     }
 
     // ═══ Xray Routing Mode ═══

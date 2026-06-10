@@ -550,11 +550,12 @@ object TunnelManager {
 
         scope.launch {
             try {
-                val servers = SubscriptionParser.fetchSubscription(subUrl)
-                if (servers.isNotEmpty()) {
-                    store.saveServers(servers)
+                val result = SubscriptionParser.fetchSubscription(subUrl)
+                if (result.servers.isNotEmpty()) {
+                    store.saveServers(result.servers)
                     store.saveLastSubUpdate(System.currentTimeMillis())
-                    updateLog("sub_refresh", "[ПОДПИСКА] Обновлено ${servers.size} серверов", 3, false)
+                    if (result.expireAt > 0L) store.saveSubExpireAt(result.expireAt)
+                    updateLog("sub_refresh", "[ПОДПИСКА] Обновлено ${result.servers.size} серверов", 3, false)
                 }
             } catch (e: Exception) {
                 updateLog("sub_refresh_err", "[ПОДПИСКА] Ошибка обновления: ${e.message}", 99, false)
