@@ -157,6 +157,7 @@ fun TunnelTab() {
     var prevStatsTimeMs by remember { mutableLongStateOf(0L) }
 
     var servicesExpanded by remember { mutableStateOf(false) }
+    var modesExpanded by rememberSaveable { mutableStateOf(false) }
     var services by remember {
         mutableStateOf(listOf(
             ServiceStatus("YouTube",   "▶", SkyflowColors.SurfaceHigh, "youtube.com"),
@@ -481,6 +482,8 @@ fun TunnelTab() {
             autoSwitchEnabled = autoSwitch,
             manualOverride = manualOverride,
             networkTransport = networkTransport,
+            expanded = modesExpanded,
+            onExpandedChange = { modesExpanded = it },
             onModeChange = { mode ->
                 scope.launch { store.saveTunnelModeManual(mode) }
             },
@@ -526,7 +529,6 @@ fun TunnelTab() {
             isConnected = isConnected,
             elapsedSec = elapsedSec,
             hint = connectionHint,
-            speedServer = if (isSpeedMode) activeSpeedServer else null
         )
 
         AnimatedVisibility(
@@ -537,12 +539,26 @@ fun TunnelTab() {
             val servers = remember(showServersScreen) { store.loadServers() }
             val selectedIdx = remember(showServersScreen) { store.getSelectedServerIndex() }
             val serverCount = servers.size
-            val selectedName = servers.getOrNull(selectedIdx)?.name ?: "Не выбран"
+            val selectedServer = servers.getOrNull(selectedIdx)
+            val selectedName = selectedServer?.name ?: "Не выбран"
             val summary = if (serverCount > 0) {
-                "$serverCount серверов · $selectedName"
+                "⚡ $selectedName"
             } else {
                 "Настроить серверы"
             }
+            val hostPortLine = if (selectedServer != null) {
+                "${selectedServer.host}:${selectedServer.port}"
+            } else null
+            val protocolLine = if (selectedServer != null) {
+                buildString {
+                    append("VLESS")
+                    if (selectedServer.type != "tcp") append(" · ${selectedServer.type.uppercase()}")
+                    when (selectedServer.security) {
+                        "tls" -> append(" · TLS")
+                        "reality" -> append(" · Reality")
+                    }
+                }
+            } else null
 
             Surface(
                 modifier = Modifier
@@ -572,7 +588,7 @@ fun TunnelTab() {
                         )
                         Column {
                             Text(
-                                "Серверы",
+                                "СЕРВЕРЫ",
                                 style = SkyflowTextStyles.labelUppercase,
                                 color = SkyflowColors.AccentLight
                             )
@@ -583,6 +599,15 @@ fun TunnelTab() {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            if (hostPortLine != null && protocolLine != null) {
+                                Text(
+                                    "$hostPortLine · $protocolLine",
+                                    fontSize = readableSp(10f),
+                                    color = SkyflowColors.TextMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                     Icon(
@@ -1019,11 +1044,7 @@ fun TunnelTab() {
             }
         }
 
-        Spacer(Modifier.height(4.dp))
-
-        ServerStatusRow(
-            tunnelRunning = tunnelRunning || isStarting,
-            isConnecting = isConnecting,
+        ConnectedServerInfo(
             isConnected = isConnected,
             isSpeedMode = isSpeedMode,
             speedServer = activeSpeedServer,
@@ -1031,8 +1052,6 @@ fun TunnelTab() {
                 com.wdtt.client.xray.XrayRoutingMode.fromKey(activeRoutingModeKey).label
             } else null
         )
-
-        Spacer(Modifier.height(12.dp))
 
         AnimatedVisibility(
             visible = isConnected,
@@ -1311,6 +1330,8 @@ private fun TunnelModeSwitch(
     autoSwitchEnabled: Boolean,
     manualOverride: Boolean,
     networkTransport: NetworkTransport,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
     onAutoSwitchChange: (Boolean) -> Unit,
 ) {
@@ -1320,6 +1341,12 @@ private fun TunnelModeSwitch(
         NetworkTransport.CELLULAR -> "LTE → белый список"
         NetworkTransport.UNKNOWN -> "Wi‑Fi → скоростной, LTE → белый список"
     }
+    val currentModeLabel = if (isSpeed) "⚡ Скоростной" else "☁ Белый список"
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(250),
+        label = "modes_chevron"
+    )
 
     Surface(
         modifier = Modifier
@@ -1329,89 +1356,143 @@ private fun TunnelModeSwitch(
         color = SkyflowColors.GlassSurface,
         border = SkyflowBorders.Glass
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Column {
+            // Always-visible header row
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onExpandedChange(!expanded) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "РЕЖИМ ПОДКЛЮЧЕНИЯ",
-                    style = SkyflowTextStyles.labelUppercase,
-                    color = SkyflowColors.TextMuted
+                    currentModeLabel,
+                    fontSize = readableSp(13f),
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isSpeed) SkyflowColors.Connected else SkyflowColors.AccentLight,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        "Авто",
-                        fontSize = readableSp(10f),
-                        color = if (autoSwitchEnabled) SkyflowColors.AccentLight else SkyflowColors.TextMuted
-                    )
-                    Switch(
-                        checked = autoSwitchEnabled,
-                        onCheckedChange = onAutoSwitchChange,
-                        modifier = Modifier.height(24.dp),
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = SkyflowColors.Connected,
-                            checkedTrackColor = SkyflowColors.Connected.copy(alpha = 0.35f),
-                            uncheckedThumbColor = SkyflowColors.TextMuted,
-                            uncheckedTrackColor = SkyflowColors.Border
+                if (autoSwitchEnabled) {
+                    Surface(
+                        shape = SkyflowShapes.LogEntry,
+                        color = SkyflowColors.AccentMuted,
+                        border = BorderStroke(0.5.dp, SkyflowColors.Accent.copy(alpha = 0.3f))
+                    ) {
+                        Text(
+                            "Авто",
+                            fontSize = readableSp(10f),
+                            fontWeight = FontWeight.SemiBold,
+                            color = SkyflowColors.AccentLight,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
-                    )
+                    }
+                    Spacer(Modifier.width(8.dp))
                 }
-            }
-            if (autoSwitchEnabled) {
-                Text(
-                    "Авто: $autoHint",
-                    fontSize = readableSp(10f),
-                    color = SkyflowColors.TextSecondary,
-                    modifier = Modifier.fillMaxWidth()
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = SkyflowColors.TextMuted,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer { rotationZ = chevronRotation }
                 )
             }
-            if (manualOverride && autoSwitchEnabled) {
-                Text(
-                    "Выбрано вручную — авто снова при смене Wi‑Fi/LTE",
-                    fontSize = readableSp(10f),
-                    color = SkyflowColors.WarnColor,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+
+            // Expandable content
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(tween(250)) + fadeIn(tween(250)),
+                exit = shrinkVertically(tween(200)) + fadeOut(tween(150))
             ) {
-                TunnelModeOption(
-                    label = "☁ Белый список",
-                    subtitle = "VK/TURN → WG",
-                    selected = !isSpeed,
-                    enabled = enabled,
-                    accentColor = SkyflowColors.AccentLight,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onModeChange("whitelist") }
-                )
-                TunnelModeOption(
-                    label = "⚡ Скоростной",
-                    subtitle = "WG → VPS",
-                    selected = isSpeed,
-                    enabled = enabled,
-                    accentColor = SkyflowColors.Connected,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onModeChange("speed") }
-                )
-            }
-            if (!enabled) {
-                Text(
-                    "Смена режима доступна после отключения",
-                    fontSize = readableSp(10f),
-                    color = SkyflowColors.TextMuted,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "РЕЖИМ ПОДКЛЮЧЕНИЯ",
+                            style = SkyflowTextStyles.labelUppercase,
+                            color = SkyflowColors.TextMuted
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                "Авто",
+                                fontSize = readableSp(10f),
+                                color = if (autoSwitchEnabled) SkyflowColors.AccentLight else SkyflowColors.TextMuted
+                            )
+                            Switch(
+                                checked = autoSwitchEnabled,
+                                onCheckedChange = onAutoSwitchChange,
+                                modifier = Modifier.height(24.dp),
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = SkyflowColors.Connected,
+                                    checkedTrackColor = SkyflowColors.Connected.copy(alpha = 0.35f),
+                                    uncheckedThumbColor = SkyflowColors.TextMuted,
+                                    uncheckedTrackColor = SkyflowColors.Border
+                                )
+                            )
+                        }
+                    }
+                    if (autoSwitchEnabled) {
+                        Text(
+                            "Авто: $autoHint",
+                            fontSize = readableSp(10f),
+                            color = SkyflowColors.TextSecondary,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (manualOverride && autoSwitchEnabled) {
+                        Text(
+                            "Выбрано вручную — авто снова при смене Wi‑Fi/LTE",
+                            fontSize = readableSp(10f),
+                            color = SkyflowColors.WarnColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TunnelModeOption(
+                            label = "☁ Белый список",
+                            subtitle = "VK/TURN → WG",
+                            selected = !isSpeed,
+                            enabled = enabled,
+                            accentColor = SkyflowColors.AccentLight,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onModeChange("whitelist") }
+                        )
+                        TunnelModeOption(
+                            label = "⚡ Скоростной",
+                            subtitle = "WG → VPS",
+                            selected = isSpeed,
+                            enabled = enabled,
+                            accentColor = SkyflowColors.Connected,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onModeChange("speed") }
+                        )
+                    }
+                    if (!enabled) {
+                        Text(
+                            "Смена режима доступна после отключения",
+                            fontSize = readableSp(10f),
+                            color = SkyflowColors.TextMuted,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
         }
     }
@@ -1591,7 +1672,6 @@ private fun StatusLabel(
     isConnected: Boolean,
     elapsedSec: Long,
     hint: String,
-    speedServer: com.wdtt.client.xray.VlessServer? = null
 ) {
     val color = when {
         !tunnelRunning -> SkyflowColors.Idle
@@ -1619,41 +1699,11 @@ private fun StatusLabel(
             color = color,
         )
         if (isConnected) {
-            if (speedServer != null) {
-                Text(
-                    speedServer.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SkyflowColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val protocolLabel = buildString {
-                    append("VLESS")
-                    if (speedServer.type != "tcp") append(" · ${speedServer.type.uppercase()}")
-                    when (speedServer.security) {
-                        "tls" -> append(" · TLS")
-                        "reality" -> append(" · Reality")
-                    }
-                }
-                Text(
-                    protocolLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SkyflowColors.TextMuted,
-                )
-                if (speedServer.latency > 0) {
-                    Text(
-                        "${speedServer.latency} ms",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = SkyflowColors.Connected,
-                    )
-                }
-            } else {
-                Text(
-                    "Соединение защищено",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SkyflowColors.TextSecondary,
-                )
-            }
+            Text(
+                "Соединение защищено",
+                style = MaterialTheme.typography.bodySmall,
+                color = SkyflowColors.TextSecondary,
+            )
         }
         if (isConnecting && hint.isNotBlank()) {
             Text(
@@ -1667,62 +1717,85 @@ private fun StatusLabel(
 }
 
 @Composable
-private fun ServerStatusRow(
-    tunnelRunning: Boolean,
-    isConnecting: Boolean,
+private fun ConnectedServerInfo(
     isConnected: Boolean,
-    isSpeedMode: Boolean = false,
-    speedServer: com.wdtt.client.xray.VlessServer? = null,
-    routingModeLabel: String? = null
+    isSpeedMode: Boolean,
+    speedServer: com.wdtt.client.xray.VlessServer?,
+    routingModeLabel: String?
 ) {
-    val dotColor = when {
-        !tunnelRunning -> SkyflowColors.Placeholder
-        isConnecting -> SkyflowColors.Connecting
-        else -> SkyflowColors.Connected
-    }
-    val header = if (isSpeedMode) "VLESS СЕРВЕР" else "ОБЛАЧНЫЙ РЕЛЕЙ"
-    val statusText = when {
-        !tunnelRunning -> if (isSpeedMode) "ожидание" else "ожидание"
-        isConnecting -> "подключение..."
-        isConnected && isSpeedMode && speedServer != null -> {
-            buildString {
-                append(speedServer.name)
-                if (speedServer.latency > 0) append(" · ${speedServer.latency}ms")
-            }
-        }
-        isConnected -> "активен"
-        else -> "готов"
-    }
-    val subtitle = if (isConnected && isSpeedMode && speedServer != null) {
-        buildString {
-            append("VLESS")
-            if (speedServer.type != "tcp") append(" · ${speedServer.type.uppercase()}")
-            when (speedServer.security) {
-                "tls" -> append(" · TLS")
-                "reality" -> append(" · Reality")
-            }
-            if (!routingModeLabel.isNullOrBlank()) append(" · $routingModeLabel")
-        }
-    } else null
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+    AnimatedVisibility(
+        visible = isConnected,
+        enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+        exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
     ) {
-        Text(
-            header,
-            style = SkyflowTextStyles.labelUppercase,
-            color = SkyflowColors.TextMuted
-        )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = SkyflowShapes.Chip,
+            color = SkyflowColors.GlassSurface,
+            border = SkyflowBorders.Glass
         ) {
-            Canvas(Modifier.size(5.dp)) { drawCircle(dotColor) }
-            Text(statusText, fontSize = readableSp(12f), color = dotColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        subtitle?.let {
-            Text(it, fontSize = readableSp(10f), color = SkyflowColors.TextMuted)
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(SkyflowColors.Connected)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    val serverName = if (isSpeedMode && speedServer != null) {
+                        speedServer.name
+                    } else {
+                        "Защищённый туннель"
+                    }
+                    Text(
+                        serverName,
+                        fontSize = readableSp(12f),
+                        fontWeight = FontWeight.SemiBold,
+                        color = SkyflowColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val subtitle = if (isSpeedMode && speedServer != null) {
+                        buildString {
+                            append("VLESS")
+                            if (speedServer.type != "tcp") append(" · ${speedServer.type.uppercase()}")
+                            when (speedServer.security) {
+                                "tls" -> append(" · TLS")
+                                "reality" -> append(" · Reality")
+                            }
+                            if (!routingModeLabel.isNullOrBlank()) append(" · $routingModeLabel")
+                        }
+                    } else {
+                        "Защищённый туннель"
+                    }
+                    Text(
+                        subtitle,
+                        fontSize = readableSp(10f),
+                        color = SkyflowColors.TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (isSpeedMode && speedServer != null && speedServer.latency > 0) {
+                    Surface(
+                        shape = SkyflowShapes.LogEntry,
+                        color = SkyflowColors.Connected.copy(alpha = 0.12f),
+                        border = BorderStroke(0.5.dp, SkyflowColors.Connected.copy(alpha = 0.3f))
+                    ) {
+                        Text(
+                            "${speedServer.latency}ms",
+                            fontSize = readableSp(10f),
+                            fontWeight = FontWeight.SemiBold,
+                            color = SkyflowColors.Connected,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }
