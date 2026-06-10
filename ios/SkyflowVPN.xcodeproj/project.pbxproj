@@ -1,0 +1,494 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2D27744DB277E30734011281 /* SkyflowVPNApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682047797F761CCFE26EA0AB /* SkyflowVPNApp.swift */; };
+		339424585FEC5DF8ABA0F523 /* ServersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D33466C3C32D0ABB82AB0741 /* ServersView.swift */; };
+		46916DE7D05229024A756B26 /* StubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87526B35D127558784FEC432 /* StubViews.swift */; };
+		57BCE2DF9F46F64AF1E584C9 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 782FDF688AF99A83861F3415 /* DesignSystem.swift */; };
+		6D67576BBE88133A09105CC9 /* SubscriptionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F105D2256EBBD163860F7B2D /* SubscriptionParser.swift */; };
+		6F7E091ED04A7C19928D1917 /* SubscriptionSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D77074DB2D299CB0B7CB6A /* SubscriptionSetupView.swift */; };
+		7107F1493A194F2FF7CB7158 /* SkyflowTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C88B0D6D28291B64272E2239 /* SkyflowTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AC22FFC6EC0C6653C91991B3 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D925252714630598C13A51B8 /* SettingsStore.swift */; };
+		C9D3FEF0ECEDF5354AF88F81 /* TunnelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69A0D7EB7DF13DFDAF9C657A /* TunnelManager.swift */; };
+		CD6F33D629BB8B5B1F8B62E0 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE9819C68C3C42EBAE1C461 /* PacketTunnelProvider.swift */; };
+		FFDC85B586019200D318CFA0 /* TunnelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20410D48CE06DC90C2BF4C9D /* TunnelView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		DA0959B56A50EB4A18B269EB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4341FF2171277EC8BEFA3778 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7A3D6F781AE3F46E5C6B0AE0;
+			remoteInfo = SkyflowTunnel;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		91CBF24E280C480B023783A9 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				7107F1493A194F2FF7CB7158 /* SkyflowTunnel.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		1CE9819C68C3C42EBAE1C461 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
+		20410D48CE06DC90C2BF4C9D /* TunnelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelView.swift; sourceTree = "<group>"; };
+		682047797F761CCFE26EA0AB /* SkyflowVPNApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkyflowVPNApp.swift; sourceTree = "<group>"; };
+		69A0D7EB7DF13DFDAF9C657A /* TunnelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelManager.swift; sourceTree = "<group>"; };
+		782FDF688AF99A83861F3415 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
+		87526B35D127558784FEC432 /* StubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubViews.swift; sourceTree = "<group>"; };
+		C7D77074DB2D299CB0B7CB6A /* SubscriptionSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSetupView.swift; sourceTree = "<group>"; };
+		C88B0D6D28291B64272E2239 /* SkyflowTunnel.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = SkyflowTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D33466C3C32D0ABB82AB0741 /* ServersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServersView.swift; sourceTree = "<group>"; };
+		D925252714630598C13A51B8 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
+		F105D2256EBBD163860F7B2D /* SubscriptionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionParser.swift; sourceTree = "<group>"; };
+		FCE6ABED53B9297FE4B69816 /* SkyflowVPN.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SkyflowVPN.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1ECABFA3EA6B3C5B5D59A9B3 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				D925252714630598C13A51B8 /* SettingsStore.swift */,
+				F105D2256EBBD163860F7B2D /* SubscriptionParser.swift */,
+				69A0D7EB7DF13DFDAF9C657A /* TunnelManager.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		23032DCE9C848E0EA38C3EB8 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				782FDF688AF99A83861F3415 /* DesignSystem.swift */,
+				D33466C3C32D0ABB82AB0741 /* ServersView.swift */,
+				87526B35D127558784FEC432 /* StubViews.swift */,
+				C7D77074DB2D299CB0B7CB6A /* SubscriptionSetupView.swift */,
+				20410D48CE06DC90C2BF4C9D /* TunnelView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		272EB073C86BBC16589BA030 /* SkyflowTunnel */ = {
+			isa = PBXGroup;
+			children = (
+				1CE9819C68C3C42EBAE1C461 /* PacketTunnelProvider.swift */,
+			);
+			path = SkyflowTunnel;
+			sourceTree = "<group>";
+		};
+		396FE4025639245B8898BE31 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C88B0D6D28291B64272E2239 /* SkyflowTunnel.appex */,
+				FCE6ABED53B9297FE4B69816 /* SkyflowVPN.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5FCF1B4E8DBE51292FB0325E /* App */ = {
+			isa = PBXGroup;
+			children = (
+				682047797F761CCFE26EA0AB /* SkyflowVPNApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		D98CD76849B37F1675A131A2 /* SkyflowVPN */ = {
+			isa = PBXGroup;
+			children = (
+				5FCF1B4E8DBE51292FB0325E /* App */,
+				1ECABFA3EA6B3C5B5D59A9B3 /* Core */,
+				23032DCE9C848E0EA38C3EB8 /* UI */,
+			);
+			path = SkyflowVPN;
+			sourceTree = "<group>";
+		};
+		E166866A259F01474DF96B55 = {
+			isa = PBXGroup;
+			children = (
+				272EB073C86BBC16589BA030 /* SkyflowTunnel */,
+				D98CD76849B37F1675A131A2 /* SkyflowVPN */,
+				396FE4025639245B8898BE31 /* Products */,
+			);
+			indentWidth = 4;
+			sourceTree = "<group>";
+			usesTabs = 0;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7A3D6F781AE3F46E5C6B0AE0 /* SkyflowTunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F165B1C52F96B7B7A293F5B4 /* Build configuration list for PBXNativeTarget "SkyflowTunnel" */;
+			buildPhases = (
+				D4741D0F4ACA54DAEEAE52D4 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SkyflowTunnel;
+			packageProductDependencies = (
+			);
+			productName = SkyflowTunnel;
+			productReference = C88B0D6D28291B64272E2239 /* SkyflowTunnel.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		ACDB159ABCFF18268FF9FBC2 /* SkyflowVPN */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 88E9734698908C6AB217F433 /* Build configuration list for PBXNativeTarget "SkyflowVPN" */;
+			buildPhases = (
+				61FEB74219E274C5C3C2CE9F /* SwiftLint (optional) */,
+				FFA0632893AF3A0586CE63B9 /* Sources */,
+				91CBF24E280C480B023783A9 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FEB2F83BC919486325484374 /* PBXTargetDependency */,
+			);
+			name = SkyflowVPN;
+			packageProductDependencies = (
+			);
+			productName = SkyflowVPN;
+			productReference = FCE6ABED53B9297FE4B69816 /* SkyflowVPN.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4341FF2171277EC8BEFA3778 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					7A3D6F781AE3F46E5C6B0AE0 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					ACDB159ABCFF18268FF9FBC2 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 689DCCA496D3A9566DA8EE40 /* Build configuration list for PBXProject "SkyflowVPN" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = E166866A259F01474DF96B55;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 396FE4025639245B8898BE31 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7A3D6F781AE3F46E5C6B0AE0 /* SkyflowTunnel */,
+				ACDB159ABCFF18268FF9FBC2 /* SkyflowVPN */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		61FEB74219E274C5C3C2CE9F /* SwiftLint (optional) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "SwiftLint (optional)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if which swiftlint > /dev/null; then\n  swiftlint\nfi\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D4741D0F4ACA54DAEEAE52D4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CD6F33D629BB8B5B1F8B62E0 /* PacketTunnelProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FFA0632893AF3A0586CE63B9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				57BCE2DF9F46F64AF1E584C9 /* DesignSystem.swift in Sources */,
+				339424585FEC5DF8ABA0F523 /* ServersView.swift in Sources */,
+				AC22FFC6EC0C6653C91991B3 /* SettingsStore.swift in Sources */,
+				2D27744DB277E30734011281 /* SkyflowVPNApp.swift in Sources */,
+				46916DE7D05229024A756B26 /* StubViews.swift in Sources */,
+				6D67576BBE88133A09105CC9 /* SubscriptionParser.swift in Sources */,
+				6F7E091ED04A7C19928D1917 /* SubscriptionSetupView.swift in Sources */,
+				C9D3FEF0ECEDF5354AF88F81 /* TunnelManager.swift in Sources */,
+				FFDC85B586019200D318CFA0 /* TunnelView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		FEB2F83BC919486325484374 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7A3D6F781AE3F46E5C6B0AE0 /* SkyflowTunnel */;
+			targetProxy = DA0959B56A50EB4A18B269EB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2CD990C789FFC1A827B4BC52 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = SkyflowTunnel/SkyflowTunnel.entitlements;
+				INFOPLIST_FILE = SkyflowTunnel/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wdtt.client.tunnel;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9F3D0E003501207727A3FFB6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SkyflowVPN/SkyflowVPN.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = SkyflowVPN/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wdtt.client;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A6F20335FDC30E224338EB0D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 120;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.2.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		AEC59D283152834C6C4BCD32 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = SkyflowTunnel/SkyflowTunnel.entitlements;
+				INFOPLIST_FILE = SkyflowTunnel/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wdtt.client.tunnel;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B35C76E8AE82E0FC16159873 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 120;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.2.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		C3F2D997C35B4D9BA2F5CDFB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SkyflowVPN/SkyflowVPN.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = SkyflowVPN/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wdtt.client;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		689DCCA496D3A9566DA8EE40 /* Build configuration list for PBXProject "SkyflowVPN" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A6F20335FDC30E224338EB0D /* Debug */,
+				B35C76E8AE82E0FC16159873 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		88E9734698908C6AB217F433 /* Build configuration list for PBXNativeTarget "SkyflowVPN" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9F3D0E003501207727A3FFB6 /* Debug */,
+				C3F2D997C35B4D9BA2F5CDFB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F165B1C52F96B7B7A293F5B4 /* Build configuration list for PBXNativeTarget "SkyflowTunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AEC59D283152834C6C4BCD32 /* Debug */,
+				2CD990C789FFC1A827B4BC52 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 4341FF2171277EC8BEFA3778 /* Project object */;
+}
