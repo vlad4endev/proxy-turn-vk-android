@@ -639,9 +639,9 @@ fun TunnelTab() {
             }
         }
 
-        // ── Subscription widget ────────────────────────────────────────────
+        // ── Subscription widget (Speed: full, Whitelist: compact status chip) ──
         AnimatedVisibility(
-            visible = !tunnelRunning && !isStarting,
+            visible = !tunnelRunning && !isStarting && isSpeedMode,
             enter   = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit    = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
@@ -653,6 +653,18 @@ fun TunnelTab() {
                     hasServers  = store.loadServers().isNotEmpty()
                 },
                 onOpenServers = { showServersScreen = true },
+            )
+        }
+        AnimatedVisibility(
+            visible = !tunnelRunning && !isStarting && !isSpeedMode && hasServers,
+            enter   = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit    = fadeOut(tween(200)) + shrinkVertically(tween(200))
+        ) {
+            SubStatusChip(
+                store      = store,
+                expireAt   = subExpireAt,
+                refreshKey = showServersScreen,
+                onClick    = { showServersScreen = true },
             )
         }
 
@@ -2491,6 +2503,84 @@ private fun subFormatBytes(bytes: Long): String {
     val idx   = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.lastIndex)
     val value = bytes / Math.pow(1024.0, idx.toDouble())
     return if (idx == 0) "$bytes B" else "%.1f %s".format(value, units[idx])
+}
+
+// ─── Compact subscription status chip (Whitelist mode only) ───────────────────
+@Composable
+private fun SubStatusChip(
+    store:      SettingsStore,
+    expireAt:   Long,    // kept in sync by parent's 30s timer
+    refreshKey: Any,     // changes when ServersScreen closes → re-read title
+    onClick:    () -> Unit,
+) {
+    val title = remember(refreshKey) { store.getSubTitle() }
+
+    val nowSec   = System.currentTimeMillis() / 1000L
+    val isActive = expireAt == 0L || expireAt > nowSec
+    val daysLeft = if (expireAt > 0L && isActive) TimeUnit.SECONDS.toDays(expireAt - nowSec) else Long.MAX_VALUE
+
+    val statusColor = if (isActive) SkyflowColors.Connected else SkyflowColors.ErrorColor
+    val expiryText  = when {
+        expireAt == 0L -> "∞"
+        !isActive      -> "Истекла"
+        daysLeft < 1   -> "Сегодня"
+        daysLeft < 30  -> "ещё ${daysLeft}д"
+        else           -> SimpleDateFormat("d MMM", Locale("ru")).format(Date(expireAt * 1000L))
+    }
+    val expiryColor = when {
+        expireAt == 0L -> SkyflowColors.TextMuted
+        !isActive      -> SkyflowColors.ErrorColor
+        daysLeft < 7   -> SkyflowColors.ErrorColor
+        daysLeft < 30  -> SkyflowColors.WarnColor
+        else           -> SkyflowColors.TextMuted
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape  = SkyflowShapes.Chip,
+        color  = SkyflowColors.GlassSurface,
+        border = BorderStroke(0.5.dp, statusColor.copy(alpha = 0.22f))
+    ) {
+        Row(
+            modifier              = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Status dot
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(statusColor)
+            )
+            // Subscription name
+            Text(
+                title.ifBlank { "Подписка" },
+                style      = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color      = SkyflowColors.TextPrimary,
+                maxLines   = 1,
+                overflow   = TextOverflow.Ellipsis,
+                modifier   = Modifier.weight(1f)
+            )
+            // Expiry / days left
+            Text(
+                expiryText,
+                style      = MaterialTheme.typography.labelSmall,
+                color      = expiryColor,
+                fontWeight = FontWeight.SemiBold
+            )
+            // Chevron arrow
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint     = SkyflowColors.TextMuted,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
 }
 
 private fun disconnectTunnel(context: Context) {
