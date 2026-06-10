@@ -6,9 +6,10 @@ import android.util.Log
 import com.wdtt.client.SettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Создаёт TUN-интерфейс через [VpnService.Builder] и запускает hev-socks5-tunnel
@@ -25,11 +26,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   1. TunnelService (VpnService) уже запущен → [TunnelService.instance] != null
  *   2. [start] → VpnService.Builder.establish() → TUN fd → TProxyStartService(config, fd) (non-blocking)
  *   3. [stop]  → TProxyStopService() (blocking, ждёт завершения C-потока) → закрываем fd
+ *
+ * ПОТОКОБЕЗОПАСНОСТЬ: hev-socks5-tunnel — глобальный нативный синглтон.
+ * TProxyStartService и TProxyStopService НЕЛЬЗЯ вызывать одновременно из разных
+ * экземпляров (разных корутин). [nativeLock] в companion object сериализует все
+ * нативные операции через все экземпляры класса.
  */
 class Tun2SocksHelper(private val vpnService: VpnService) {
 
     @Volatile private var tunFd: ParcelFileDescriptor? = null
-    private val _running = AtomicBoolean(false)
     @Volatile private var nativeLibLoaded = false
 
     companion object {
@@ -37,6 +42,17 @@ class Tun2SocksHelper(private val vpnService: VpnService) {
         private const val TUN_ADDRESS = "10.1.0.2"
         private const val TUN_PREFIX = 30
         private const val TUN_MTU = 1500
+
+        // Global mutex — serialises ALL TProxyStartService / TProxyStopService calls
+        // across every Tun2SocksHelper instance. Prevents the crash that occurs when
+        // TProxyStopService (from a previous instance's stop coroutine) and
+        // TProxyStartService (from a new instance's start) run concurrently, e.g.
+        // after START_STICKY service restart.
+        private val nativeLock = Mutex()
+
+        // Global flag that mirrors whether the native C-thread is alive.
+        // Shared because the native library is a process-wide singleton.
+        @Volatile private var nativeRunning = false
 
         // TProxyStartService — NON-BLOCKING: запускает внутренний C-поток и возвращается.
         @JvmStatic
@@ -69,61 +85,73 @@ class Tun2SocksHelper(private val vpnService: VpnService) {
 
     /**
      * Создаёт TUN через VpnService.Builder и запускает hev-socks5-tunnel.
-     * TProxyStartService — non-blocking, поэтому вызывается напрямую без отдельного потока.
+     * Удерживает [nativeLock] на всё время операции, чтобы предотвратить
+     * конкурентный вызов TProxyStopService из параллельной stop()-корутины.
      */
-    suspend fun start(socksHost: String, socksPort: Int) = withContext(Dispatchers.IO) {
-        stop()
+    suspend fun start(socksHost: String, socksPort: Int) {
+        withContext(Dispatchers.IO) {
+            nativeLock.withLock {
+                // ── 0. Остановить предыдущий нативный сервис (если запущен) ──
+                // Inline (не вызываем stop()) — Mutex нереентрантен.
+                if (nativeRunning) {
+                    nativeRunning = false
+                    try {
+                        TProxyStopService()
+                        Log.i(TAG, "Previous hev-socks5-tunnel stopped before restart")
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "TProxyStopService (pre-start cleanup): ${e.message}")
+                    }
+                }
+                // Close any leftover fd from this instance
+                val oldFd = tunFd; tunFd = null
+                try { oldFd?.close() } catch (_: Exception) {}
 
-        if (!nativeLibLoaded) {
-            throw IllegalStateException(
-                "libhev-socks5-tunnel.so не загружена — пересоберите APK (scripts/build-native-speed.sh)"
-            )
-        }
+                if (!nativeLibLoaded) {
+                    throw IllegalStateException(
+                        "libhev-socks5-tunnel.so не загружена — пересоберите APK (scripts/build-native-speed.sh)"
+                    )
+                }
 
-        if (VpnService.prepare(vpnService) != null) {
-            throw IllegalStateException("VPN-разрешение не выдано")
-        }
+                if (VpnService.prepare(vpnService) != null) {
+                    throw IllegalStateException("VPN-разрешение не выдано")
+                }
 
-        // ── 1. TUN через VpnService.Builder ──────────────────────────────
-        val builder = vpnService.Builder()
-        builder.setSession("SKYFLOW Speed")
-        builder.addAddress(TUN_ADDRESS, TUN_PREFIX)
-        builder.addRoute("0.0.0.0", 0)
-        builder.addDnsServer("1.1.1.1")
-        builder.addDnsServer("8.8.8.8")
-        builder.setMtu(TUN_MTU)
-        builder.setBlocking(false)
+                // ── 1. TUN через VpnService.Builder ──────────────────────────────
+                val builder = vpnService.Builder()
+                builder.setSession("SKYFLOW Speed")
+                builder.addAddress(TUN_ADDRESS, TUN_PREFIX)
+                builder.addRoute("0.0.0.0", 0)
+                builder.addDnsServer("1.1.1.1")
+                builder.addDnsServer("8.8.8.8")
+                builder.setMtu(TUN_MTU)
+                builder.setBlocking(false)
 
-        // Исключения приложений (та же логика что в WireGuardHelper)
-        val store = SettingsStore(vpnService)
-        val savedExcluded = store.excludedApps.first()
-        val userSelected = savedExcluded.split(",").filter { it.isNotEmpty() }.toSet()
+                val store = SettingsStore(vpnService)
+                val savedExcluded = store.excludedApps.first()
+                val userSelected = savedExcluded.split(",").filter { it.isNotEmpty() }.toSet()
 
-        val excluded = mutableSetOf(
-            vpnService.packageName,
-            "com.vkontakte.android",
-            "com.vk.calls"
-        )
-        excluded.addAll(userSelected)
+                val excluded = mutableSetOf(
+                    vpnService.packageName,
+                    "com.vkontakte.android",
+                    "com.vk.calls"
+                )
+                excluded.addAll(userSelected)
 
-        val pm = vpnService.packageManager
-        excluded
-            .filter { pkg -> runCatching { pm.getPackageInfo(pkg, 0); true }.getOrDefault(false) }
-            .forEach { builder.addDisallowedApplication(it) }
+                val pm = vpnService.packageManager
+                excluded
+                    .filter { pkg -> runCatching { pm.getPackageInfo(pkg, 0); true }.getOrDefault(false) }
+                    .forEach { builder.addDisallowedApplication(it) }
 
-        tunFd = builder.establish()
-            ?: throw IllegalStateException("VPN establish() вернул null — VPN-разрешение отозвано?")
+                tunFd = builder.establish()
+                    ?: throw IllegalStateException("VPN establish() вернул null — VPN-разрешение отозвано?")
 
-        val fdInt = tunFd!!.fd
-        Log.i(TAG, "TUN создан, fd=$fdInt")
+                val fdInt = tunFd!!.fd
+                Log.i(TAG, "TUN создан, fd=$fdInt")
 
-        // ── 2. Конфиг hev-socks5-tunnel v2.15.0 ─────────────────────────
-        // Config format verified from hev-socks5-tunnel 2.15.0 source (conf/main.yml).
-        // Only socks5.port and socks5.address are required; everything else is optional.
-        // task-stack-size default is 86016 bytes; we use the same to avoid stack overflow.
-        val configFile = File(vpnService.filesDir, "hev-socks5-tunnel.yml")
-        configFile.writeText(
-            """
+                // ── 2. Конфиг hev-socks5-tunnel v2.15.0 ─────────────────────────
+                val configFile = File(vpnService.filesDir, "hev-socks5-tunnel.yml")
+                configFile.writeText(
+                    """
 tunnel:
   name: tun0
   mtu: 8500
@@ -141,55 +169,59 @@ misc:
   udp-read-write-timeout: 60000
   log-file: stderr
   log-level: info
-            """.trimIndent()
-        )
+                    """.trimIndent()
+                )
 
-        // ── 3. Запуск hev-socks5-tunnel через JNI ────────────────────────
-        //
-        // TProxyStartService в hev-socks5-tunnel v2.15.0 — NON-BLOCKING!
-        // Внутри JNI (native_start_service) создаётся нативный C-поток с
-        // hev_socks5_tunnel_main(), а функция сразу возвращает управление.
-        // Туннель живёт в C-потоке под управлением самой нативной библиотеки,
-        // НЕ в Kotlin-потоке. Kotlin-обёртка НЕ нужна.
-        val configPath = configFile.absolutePath
-        Log.i(TAG, "TProxyStartService: fd=$fdInt cfg=$configPath (${configFile.length()}b)")
+                // ── 3. Запуск hev-socks5-tunnel через JNI ────────────────────────
+                val configPath = configFile.absolutePath
+                Log.i(TAG, "TProxyStartService: fd=$fdInt cfg=$configPath (${configFile.length()}b)")
 
-        try {
-            TProxyStartService(configPath, fdInt)
-        } catch (e: UnsatisfiedLinkError) {
-            tunFd?.close(); tunFd = null
-            throw IllegalStateException("libhev-socks5-tunnel.so не загружена: ${e.message}")
-        } catch (e: Throwable) {
-            tunFd?.close(); tunFd = null
-            throw IllegalStateException("TProxyStartService: ${e.message}")
-        }
+                try {
+                    TProxyStartService(configPath, fdInt)
+                } catch (e: UnsatisfiedLinkError) {
+                    tunFd?.close(); tunFd = null
+                    throw IllegalStateException("libhev-socks5-tunnel.so не загружена: ${e.message}")
+                } catch (e: Throwable) {
+                    tunFd?.close(); tunFd = null
+                    throw IllegalStateException("TProxyStartService: ${e.message}")
+                }
 
-        // TProxyStartService вернулась мгновенно — это НОРМАЛЬНО (non-blocking JNI).
-        // Даём нативному C-потоку 300 мс на старт event-loop'а и обработку первых пакетов.
-        Thread.sleep(300)
+                // Даём нативному C-потоку 300 мс на старт event-loop'а.
+                // Thread.sleep (не delay) намеренно: не прерывается отменой корутины,
+                // поэтому nativeRunning = true гарантированно выставится после запуска.
+                Thread.sleep(300)
 
-        _running.set(true)
-        Log.i(TAG, "hev-socks5-tunnel запущен (нативный C-поток внутри JNI)")
-    }
-
-    /** Останавливает hev-socks5-tunnel и закрывает TUN-дескриптор.
-     *  TProxyStopService — блокирующий вызов: ждёт завершения нативного C-потока. */
-    suspend fun stop() = withContext(Dispatchers.IO) {
-        if (_running.getAndSet(false)) {
-            try {
-                // BLOCKING: внутри вызывает quit() + pthread_join на нативный C-поток
-                TProxyStopService()
-            } catch (e: Throwable) {
-                Log.w(TAG, "TProxyStopService: ${e.message}")
+                nativeRunning = true
+                Log.i(TAG, "hev-socks5-tunnel запущен (нативный C-поток внутри JNI)")
             }
-            Log.i(TAG, "hev-socks5-tunnel остановлен")
         }
-        val fd = tunFd
-        tunFd = null
-        try {
-            fd?.close()
-        } catch (_: Exception) {}
     }
 
-    fun isRunning(): Boolean = _running.get() && tunFd != null
+    /**
+     * Останавливает hev-socks5-tunnel и закрывает TUN-дескриптор.
+     * Удерживает [nativeLock] — ждёт завершения любого параллельного start().
+     * TProxyStopService — блокирующий: ждёт pthread_join нативного C-потока.
+     */
+    suspend fun stop() {
+        withContext(Dispatchers.IO) {
+            nativeLock.withLock {
+                if (nativeRunning) {
+                    nativeRunning = false
+                    try {
+                        TProxyStopService()
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "TProxyStopService: ${e.message}")
+                    }
+                    Log.i(TAG, "hev-socks5-tunnel остановлен")
+                }
+                val fd = tunFd
+                tunFd = null
+                try {
+                    fd?.close()
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun isRunning(): Boolean = nativeRunning && tunFd != null
 }
