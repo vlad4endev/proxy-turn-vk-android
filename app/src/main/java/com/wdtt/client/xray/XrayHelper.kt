@@ -209,18 +209,21 @@ class XrayHelper(context: Context) {
 
     /**
      * Stops the Xray process if running.
+     * Uses a 3-second timeout on waitFor() to avoid blocking indefinitely if Xray hangs.
      */
     suspend fun stop() = withContext(Dispatchers.IO) {
-        process?.let { proc ->
-            try {
-                proc.destroy()
-                proc.waitFor()
-                Log.i(TAG, "Xray stopped")
-            } catch (e: Exception) {
-                Log.w(TAG, "Error stopping Xray: ${e.message}")
-            } finally {
-                process = null
+        val proc = process ?: return@withContext
+        process = null
+        try {
+            proc.destroy()
+            val exited = proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+            if (!exited) {
+                proc.destroyForcibly()
+                proc.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
             }
+            Log.i(TAG, "Xray stopped")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error stopping Xray: ${e.message}")
         }
     }
 

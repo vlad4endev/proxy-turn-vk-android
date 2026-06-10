@@ -115,6 +115,8 @@ object TunnelManager {
     val activeRoutingMode = MutableStateFlow("global")
     /** Фоновый Job для периодического сбора трафика через TrafficStats (только Speed-режим). */
     private var speedStatsJob: Job? = null
+    /** Job основного запуска туннеля — отменяется в stop(), чтобы не было гонки со стопом. */
+    private var startJob: Job? = null
 
     // Error counters for circuit breaker
     private var floodCount = 0
@@ -325,7 +327,8 @@ object TunnelManager {
             try { System.loadLibrary("hev-socks5-tunnel") } catch (_: Throwable) {}
         }
 
-        scope.launch {
+        startJob?.cancel()
+        startJob = scope.launch {
             try {
                 if (mode == TunnelMode.SPEED) {
                     // ── Speed-стек: только Xray + tun2socks, WireGuard не трогаем ──
@@ -339,6 +342,7 @@ object TunnelManager {
             } catch (e: Throwable) {
                 // Catches Exception AND Error (UnsatisfiedLinkError, ExceptionInInitializerError…)
                 // so a JNI failure never crashes the whole app process.
+                if (e is kotlinx.coroutines.CancellationException) return@launch // cancelled by stop()
                 updateLog("critical_start_error", "Критическая ошибка запуска: ${e.message}", 99, true)
                 e.printStackTrace()
                 running.value = false
@@ -1443,28 +1447,38 @@ object TunnelManager {
     }
 
     fun stop() {
+        // Cancel in-flight start coroutine — prevents race between startSpeedMode() and stop().
+        startJob?.cancel()
+        startJob = null
         startInProgress = false
         transportRestartInProgress = false
+
+        // Capture helpers atomically before nulling them so the stop-coroutine uses
+        // the snapshot and doesn't fight with a concurrent start()/stop() call.
         val stoppingMode = tunnelMode.value
+        val t2s    = tun2socksHelper.also { tun2socksHelper = null }
+        val xray   = xrayHelper       // don't null xrayHelper here — reused across reconnects
+        val wg     = wgHelper
+
         scope.launch(Dispatchers.IO) {
             if (stoppingMode == TunnelMode.SPEED) {
                 // ── Останавливаем только Speed-стек (Xray + tun2socks) ──
                 stopSpeedModeStats()
+                // tun2socks FIRST — closes TUN fd; then Xray (frees SOCKS5 port)
                 try {
-                    tun2socksHelper?.stop()
-                    tun2socksHelper = null
+                    t2s?.stop()
                 } catch (e: Throwable) {
                     Log.e("TunnelManager", "Failed to stop tun2socks: ${e.message}")
                 }
                 try {
-                    xrayHelper?.stop()
+                    xray?.stop()
                 } catch (e: Throwable) {
                     Log.e("TunnelManager", "Failed to stop xray: ${e.message}")
                 }
             } else {
                 // ── Останавливаем только Whitelist-стек (WireGuard + Go-клиент) ──
                 try {
-                    wgHelper?.stopTunnel()
+                    wg?.stopTunnel()
                 } catch (e: Exception) {
                     Log.e("TunnelManager", "Failed to stop wireguard: ${e.message}")
                 }
@@ -1491,16 +1505,21 @@ object TunnelManager {
     }
 
     suspend fun stopAndWait() {
+        startJob?.cancel()
+        startJob = null
         val stoppingMode = tunnelMode.value
+        val t2s  = tun2socksHelper.also { tun2socksHelper = null }
+        val xray = xrayHelper
+        val wg   = wgHelper
         withContext(Dispatchers.IO) {
             if (stoppingMode == TunnelMode.SPEED) {
                 // ── Speed-стек ──
                 stopSpeedModeStats()
-                try { tun2socksHelper?.stop(); tun2socksHelper = null } catch (_: Throwable) {}
-                try { xrayHelper?.stop() } catch (_: Throwable) {}
+                try { t2s?.stop() } catch (_: Throwable) {}
+                try { xray?.stop() } catch (_: Throwable) {}
             } else {
                 // ── Whitelist-стек ──
-                try { wgHelper?.stopTunnel() } catch (_: Exception) {}
+                try { wg?.stopTunnel() } catch (_: Exception) {}
             }
             killProcess()
             running.value = false

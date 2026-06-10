@@ -41,6 +41,7 @@ class TunnelService : VpnService() {
     private var wifiLock: WifiManager.WifiLock? = null
     private var updateJob: Job? = null
     private var lastNotificationText: String? = null
+    @Volatile private var isStopping = false
     
     // Network Monitoring
     private var connectivityManager: ConnectivityManager? = null
@@ -54,6 +55,7 @@ class TunnelService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        isStopping = false
         createNotificationChannel()
         // Сразу берем лок при создании
         acquireWakeLock()
@@ -185,6 +187,9 @@ class TunnelService : VpnService() {
     }
 
     private fun stopTunnel() {
+        if (isStopping) return
+        isStopping = true
+
         updateJob?.cancel()
 
         // Уничтожаем текущий WebView (если капча решается) и чистим контекст
