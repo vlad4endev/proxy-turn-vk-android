@@ -117,6 +117,8 @@ object TunnelManager {
     private var speedStatsJob: Job? = null
     /** Job основного запуска туннеля — отменяется в stop(), чтобы не было гонки со стопом. */
     private var startJob: Job? = null
+    /** Job последней операции остановки нативных процессов (tun2socks + Xray / WireGuard). */
+    @Volatile private var stopJob: Job? = null
 
     // Error counters for circuit breaker
     private var floodCount = 0
@@ -1462,11 +1464,14 @@ object TunnelManager {
         val xray   = xrayHelper       // don't null xrayHelper here — reused across reconnects
         val wg     = wgHelper
 
-        scope.launch(Dispatchers.IO) {
+        stopJob = scope.launch(Dispatchers.IO) {
             if (stoppingMode == TunnelMode.SPEED) {
                 // ── Останавливаем только Speed-стек (Xray + tun2socks) ──
                 stopSpeedModeStats()
-                // tun2socks FIRST — closes TUN fd; then Xray (frees SOCKS5 port)
+                // tun2socks FIRST — closes TUN fd; then Xray (frees SOCKS5 port).
+                // ВАЖНО: tun2socks.stop() теперь закрывает fd ДО pthread_join,
+                // поэтому этот Job должен завершиться ДО уничтожения VpnService.
+                // TunnelService.stopTunnel() ждёт через awaitStop() перед stopSelf().
                 try {
                     t2s?.stop()
                 } catch (e: Throwable) {
@@ -1504,6 +1509,15 @@ object TunnelManager {
         _showCaptchaModal.value = false
         ManlCaptchaWebViewManager.cancelCaptcha()
         CaptchaWebViewActivityLauncher.dismiss()
+    }
+
+    /**
+     * Ждёт завершения фоновой остановки нативных процессов, запущенной в [stop].
+     * Вызывается из TunnelService.stopTunnel() перед stopForeground / stopSelf,
+     * чтобы VpnService не уничтожался (и не отзывал TUN fd) раньше времени.
+     */
+    suspend fun awaitStop() {
+        stopJob?.join()
     }
 
     suspend fun stopAndWait() {

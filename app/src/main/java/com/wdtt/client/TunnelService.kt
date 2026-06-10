@@ -195,11 +195,20 @@ class TunnelService : VpnService() {
         // Уничтожаем текущий WebView (если капча решается) и чистим контекст
         CaptchaWebViewManager.onTunnelStop()
 
+        // Сбрасываем UI-состояние и запускаем фоновую остановку нативных процессов.
         TunnelManager.stop()
-        releaseWakeLock()
-        releaseWifiLock()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+
+        // Ждём завершения tun2socks / Xray (или WireGuard) ДО уничтожения сервиса.
+        // Без этого ОС отзывает VPN TUN-fd раньше, чем TProxyStopService успевает
+        // выполнить pthread_join → нативный поток читает из невалидного fd → SIGSEGV.
+        // stopForeground / stopSelf вызываются только после полного завершения стека.
+        TunnelManager.scope.launch {
+            TunnelManager.awaitStop()
+            releaseWakeLock()
+            releaseWifiLock()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     private fun setupNetworkCallback() {

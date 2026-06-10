@@ -201,10 +201,23 @@ misc:
      * Останавливает hev-socks5-tunnel и закрывает TUN-дескриптор.
      * Удерживает [nativeLock] — ждёт завершения любого параллельного start().
      * TProxyStopService — блокирующий: ждёт pthread_join нативного C-потока.
+     *
+     * ВАЖНО: fd закрывается ДО вызова TProxyStopService.
+     * Закрытие fd сигнализирует event loop hev-socks5-tunnel завершиться через
+     * ошибку чтения (EBADF / EIO). Это гарантирует, что к моменту pthread_join
+     * нативный поток уже находится в процессе завершения, а не читает из fd.
+     * Без этого возникает SIGSEGV: ОС отзывает VPN-fd при уничтожении сервиса
+     * раньше, чем TProxyStopService успевает выполниться.
      */
     suspend fun stop() {
         withContext(Dispatchers.IO) {
             nativeLock.withLock {
+                // ── 1. Закрываем fd первым — сигнал event loop завершиться чисто ──
+                val fd = tunFd
+                tunFd = null
+                try { fd?.close() } catch (_: Exception) {}
+
+                // ── 2. Теперь безопасно ждём завершения нативного C-потока ──────
                 if (nativeRunning) {
                     nativeRunning = false
                     try {
@@ -214,11 +227,6 @@ misc:
                     }
                     Log.i(TAG, "hev-socks5-tunnel остановлен")
                 }
-                val fd = tunFd
-                tunFd = null
-                try {
-                    fd?.close()
-                } catch (_: Exception) {}
             }
         }
     }
