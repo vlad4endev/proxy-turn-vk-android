@@ -48,6 +48,16 @@ server
 Thumbs.db
 Desktop.ini
 
+# ===== iOS / Xcode =====
+ios/SkyflowVPN/Frameworks/          # XCFrameworks — build locally via scripts/build-native-ios.sh
+ios/**/*.xcodeproj/xcuserdata/
+ios/**/*.xcworkspace/xcuserdata/
+ios/**/DerivedData/
+ios/**/.build/
+*.xccheckout
+*.moved-aside
+xcuserdata/
+
 # ===== Misc =====
 *.log
 *.tmp
