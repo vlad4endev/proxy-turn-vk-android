@@ -2,6 +2,7 @@ package com.wdtt.client.ui
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.widget.Toast
@@ -172,6 +173,22 @@ fun TunnelTab() {
     var showServersScreen by rememberSaveable { mutableStateOf(false) }
     val activeSpeedServer by TunnelManager.activeSpeedServer.collectAsStateWithLifecycle()
 
+    // ── Subscription expiry gate ──────────────────────────────────────────────
+    val isSubMode = remember { store.getVlessInputMode() == "subscription" }
+    var subExpireAt by remember { mutableLongStateOf(store.getSubExpireAt()) }
+    val isSubExpired by remember {
+        derivedStateOf {
+            isSubMode && subExpireAt > 0L && subExpireAt < System.currentTimeMillis() / 1000L
+        }
+    }
+    // Re-read expiry every 30s so it auto-unlocks after payment + subscription refresh
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            subExpireAt = store.getSubExpireAt()
+        }
+    }
+
     fun detectProvider(link: String): LinkProvider = YandexParser.detectProvider(link)
 
     suspend fun checkLink(link: String): LinkStatus {
@@ -215,8 +232,8 @@ fun TunnelTab() {
     }
     val vkHash = remember(vkLink) { parseVkHash(vkLink) }
     val powerEnabled = tunnelRunning || isStarting ||
-        isSpeedMode ||
-        (vkLink.isNotBlank() && vkHash.isNotBlank())
+        (!isSubExpired && isSpeedMode) ||
+        (!isSubExpired && vkLink.isNotBlank() && vkHash.isNotBlank())
 
     LaunchedEffect(tunnelRunning, activeWorkers, connectionStage, isSpeedMode) {
         when {
@@ -420,7 +437,12 @@ fun TunnelTab() {
     }
 
     val onPowerClick: () -> Unit = {
-        if (tunnelRunning || isStarting) {
+        if (isSubExpired && !tunnelRunning && !isStarting) {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } else if (tunnelRunning || isStarting) {
             isStarting = false
             disconnectTunnel(context)
         } else if (isSpeedMode) {
@@ -530,6 +552,64 @@ fun TunnelTab() {
             elapsedSec = elapsedSec,
             hint = connectionHint,
         )
+
+        // ── Subscription expired banner ────────────────────────────────────
+        AnimatedVisibility(
+            visible = isSubExpired && !tunnelRunning && !isStarting,
+            enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit  = fadeOut(tween(200)) + shrinkVertically(tween(200))
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = SkyflowShapes.Card,
+                color    = SkyflowColors.ErrorColor.copy(alpha = 0.08f),
+                border   = BorderStroke(1.dp, SkyflowColors.ErrorColor.copy(alpha = 0.30f))
+            ) {
+                Column(
+                    modifier              = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalAlignment   = Alignment.CenterHorizontally,
+                    verticalArrangement   = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment     = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("⛔", fontSize = 18.sp)
+                        Column {
+                            Text(
+                                "Подписка истекла",
+                                style      = MaterialTheme.typography.titleSmall,
+                                color      = SkyflowColors.ErrorColor,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "VPN и белый список недоступны до оплаты",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SkyflowColors.TextSecondary
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors   = ButtonDefaults.buttonColors(
+                            containerColor = SkyflowColors.Accent,
+                            contentColor   = SkyflowColors.OnAccent
+                        ),
+                        shape = SkyflowShapes.Chip
+                    ) {
+                        Text("✈  Оплатить через Telegram", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
 
         AnimatedVisibility(
             visible = isSpeedMode && !tunnelRunning && !isStarting,
