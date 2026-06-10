@@ -10,45 +10,35 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
+import com.wdtt.client.ui.SkyflowColors
+import com.wdtt.client.ui.SkyflowShapes
 
 private const val CAPTCHA_PROXY_URL = "http://127.0.0.1:8765"
 private val CAPTCHA_RETRY_DELAYS_MS = longArrayOf(500L, 1_000L, 2_000L)
@@ -122,8 +112,6 @@ fun CaptchaModal(
     onDismiss: () -> Unit,
     onCaptchaSolved: () -> Unit,
 ) {
-    if (!isVisible) return
-
     val context = LocalContext.current
     val store = remember { SettingsStore(context) }
     val storedUserAgent by store.userAgent.collectAsStateWithLifecycle(initialValue = "")
@@ -146,201 +134,305 @@ fun CaptchaModal(
         retryAttempt += 1
         mainHandler.post {
             isLoading = true
-            loadError = "Повтор загрузки ($retryAttempt/${CAPTCHA_RETRY_DELAYS_MS.size})…"
+            loadError = "Повтор ($retryAttempt/${CAPTCHA_RETRY_DELAYS_MS.size})…"
         }
-        mainHandler.postDelayed({
-            webViewRef?.loadUrl(CAPTCHA_PROXY_URL)
-        }, delayMs)
+        mainHandler.postDelayed({ webViewRef?.loadUrl(CAPTCHA_PROXY_URL) }, delayMs)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.7f))
-            .clickable(enabled = false) {}
+    // ── Dim background — only when visible, dismissible by tap ───────────────
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = androidx.compose.animation.fadeIn(tween(200)),
+        exit  = androidx.compose.animation.fadeOut(tween(180))
     ) {
-        Column(
+        Box(
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = 24.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .clickable(enabled = true) { onDismiss() }
+        )
+    }
+
+    // ── Bottom sheet card ─────────────────────────────────────────────────────
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = slideInVertically(
+            animationSpec = tween(320),
+            initialOffsetY = { it }
+        ),
+        exit  = slideOutVertically(
+            animationSpec = tween(240),
+            targetOffsetY = { it }
+        ),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Подтверждение",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Закрыть")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                "VK запросил проверку. Пройдите капчу " +
-                    "и подключение продолжится автоматически.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 350.dp, max = 500.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .navigationBarsPadding()
+                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .background(SkyflowColors.GlassSurfaceElevated)
+                    .clickable(enabled = false) {}  // absorb taps so background-tap doesn't pass through
             ) {
-                AndroidView(
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            webViewRef = this
-                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            settings.apply {
-                                javaScriptEnabled = true
-                                domStorageEnabled = true
-                                databaseEnabled = true
-                                mediaPlaybackRequiresUserGesture = false
-                                loadWithOverviewMode = true
-                                useWideViewPort = true
-                                blockNetworkLoads = false
-                                cacheMode = WebSettings.LOAD_DEFAULT
-                                userAgentString = userAgent
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            }
-
-                            addJavascriptInterface(object {
-                                @android.webkit.JavascriptInterface
-                                fun onCancelAndStop() {
-                                    mainHandler.post {
-                                        TunnelManager.stop()
-                                        onDismiss()
-                                    }
-                                }
-
-                                @android.webkit.JavascriptInterface
-                                fun onCaptchaDone() {
-                                    mainHandler.post { onCaptchaSolved() }
-                                }
-                            }, "WdttCaptchaHost")
-
-                            webViewClient = object : WebViewClient() {
-                                override fun shouldInterceptRequest(
-                                    view: WebView?,
-                                    request: WebResourceRequest?
-                                ): WebResourceResponse? {
-                                    val url = request?.url?.toString() ?: ""
-                                    if (url.contains("local-captcha-result")) {
-                                        mainHandler.post { onCaptchaSolved() }
-                                    }
-                                    return super.shouldInterceptRequest(view, request)
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    view?.evaluateJavascript(hideElementsJSCode, null)
-                                    mainHandler.post {
-                                        isLoading = false
-                                        loadError = null
-                                    }
-                                    if (url?.contains("local-captcha-result") == true) {
-                                        mainHandler.post { onCaptchaSolved() }
-                                    }
-                                }
-
-                                override fun onReceivedError(
-                                    view: WebView?,
-                                    request: WebResourceRequest?,
-                                    error: WebResourceError?
-                                ) {
-                                    super.onReceivedError(view, request, error)
-                                    if (request?.isForMainFrame != true) return
-                                    val description = error?.description?.toString() ?: "Не удалось открыть страницу"
-                                    scheduleRetry(description)
-                                }
-
-                                override fun onReceivedHttpError(
-                                    view: WebView?,
-                                    request: WebResourceRequest?,
-                                    errorResponse: WebResourceResponse?
-                                ) {
-                                    super.onReceivedHttpError(view, request, errorResponse)
-                                    if (request?.isForMainFrame != true) return
-                                    val code = errorResponse?.statusCode ?: 0
-                                    scheduleRetry("HTTP $code")
-                                }
-
-                                override fun onReceivedSslError(
-                                    view: WebView,
-                                    handler: android.webkit.SslErrorHandler,
-                                    error: android.net.http.SslError
-                                ) {
-                                    val url = error.url ?: ""
-                                    if (
-                                        url.contains("127.0.0.1") ||
-                                        url.contains("localhost") ||
-                                        url.contains("vk.ru") ||
-                                        url.contains("vk.com") ||
-                                        url.contains("okcdn.ru")
-                                    ) {
-                                        handler.proceed()
-                                    } else {
-                                        handler.cancel()
-                                    }
-                                }
-                            }
-                            webChromeClient = WebChromeClient()
-                            loadUrl(CAPTCHA_PROXY_URL)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                if (isLoading) {
-                    CircularProgressIndicator(
+                // ── Drag handle ───────────────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .size(48.dp),
-                        color = MaterialTheme.colorScheme.primary
+                            .size(width = 36.dp, height = 4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(SkyflowColors.TextMuted.copy(alpha = 0.35f))
                     )
                 }
 
-                loadError?.let { errorText ->
-                    if (!isLoading) {
+                // ── Header row ────────────────────────────────────────────────
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Status dot
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(
+                                if (isLoading) SkyflowColors.Connecting
+                                else if (loadError != null) SkyflowColors.ErrorColor
+                                else SkyflowColors.Connected
+                            )
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = errorText,
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .padding(16.dp),
+                            "Проверка VK",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SkyflowColors.TextPrimary
+                        )
+                        Text(
+                            when {
+                                isLoading && loadError != null -> loadError!!
+                                isLoading -> "Загрузка капчи…"
+                                loadError != null -> loadError!!
+                                else -> "Пройдите проверку — подключение продолжится автоматически"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center
+                            color = SkyflowColors.TextMuted,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                    // Retry button (shown on error)
+                    if (loadError != null && !isLoading) {
+                        IconButton(
+                            onClick = {
+                                retryAttempt = 0
+                                isLoading = true
+                                loadError = null
+                                webViewRef?.loadUrl(CAPTCHA_PROXY_URL)
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Повторить",
+                                tint = SkyflowColors.AccentLight,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    // Close button
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Закрыть",
+                            tint = SkyflowColors.TextMuted,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                    color = SkyflowColors.Border.copy(alpha = 0.5f)
+                )
+
+                // ── WebView area ──────────────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(300.dp)
+                ) {
+                    AndroidView(
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                webViewRef = this
+                                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                settings.apply {
+                                    javaScriptEnabled = true
+                                    domStorageEnabled = true
+                                    databaseEnabled = true
+                                    mediaPlaybackRequiresUserGesture = false
+                                    loadWithOverviewMode = true
+                                    useWideViewPort = true
+                                    blockNetworkLoads = false
+                                    cacheMode = WebSettings.LOAD_DEFAULT
+                                    userAgentString = userAgent
+                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                }
+
+                                addJavascriptInterface(object {
+                                    @android.webkit.JavascriptInterface
+                                    fun onCancelAndStop() {
+                                        mainHandler.post {
+                                            TunnelManager.stop()
+                                            onDismiss()
+                                        }
+                                    }
+
+                                    @android.webkit.JavascriptInterface
+                                    fun onCaptchaDone() {
+                                        mainHandler.post { onCaptchaSolved() }
+                                    }
+                                }, "WdttCaptchaHost")
+
+                                webViewClient = object : WebViewClient() {
+                                    override fun shouldInterceptRequest(
+                                        view: WebView?,
+                                        request: WebResourceRequest?
+                                    ): WebResourceResponse? {
+                                        val url = request?.url?.toString() ?: ""
+                                        if (url.contains("local-captcha-result")) {
+                                            mainHandler.post { onCaptchaSolved() }
+                                        }
+                                        return super.shouldInterceptRequest(view, request)
+                                    }
+
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        view?.evaluateJavascript(hideElementsJSCode, null)
+                                        mainHandler.post {
+                                            isLoading = false
+                                            loadError = null
+                                        }
+                                        if (url?.contains("local-captcha-result") == true) {
+                                            mainHandler.post { onCaptchaSolved() }
+                                        }
+                                    }
+
+                                    override fun onReceivedError(
+                                        view: WebView?,
+                                        request: WebResourceRequest?,
+                                        error: WebResourceError?
+                                    ) {
+                                        super.onReceivedError(view, request, error)
+                                        if (request?.isForMainFrame != true) return
+                                        scheduleRetry(
+                                            error?.description?.toString() ?: "Ошибка загрузки"
+                                        )
+                                    }
+
+                                    override fun onReceivedHttpError(
+                                        view: WebView?,
+                                        request: WebResourceRequest?,
+                                        errorResponse: WebResourceResponse?
+                                    ) {
+                                        super.onReceivedHttpError(view, request, errorResponse)
+                                        if (request?.isForMainFrame != true) return
+                                        scheduleRetry("HTTP ${errorResponse?.statusCode ?: 0}")
+                                    }
+
+                                    override fun onReceivedSslError(
+                                        view: WebView,
+                                        handler: android.webkit.SslErrorHandler,
+                                        error: android.net.http.SslError
+                                    ) {
+                                        val url = error.url ?: ""
+                                        if (url.contains("127.0.0.1") ||
+                                            url.contains("localhost") ||
+                                            url.contains("vk.ru") ||
+                                            url.contains("vk.com") ||
+                                            url.contains("okcdn.ru")
+                                        ) {
+                                            handler.proceed()
+                                        } else {
+                                            handler.cancel()
+                                        }
+                                    }
+                                }
+                                webChromeClient = WebChromeClient()
+                                loadUrl(CAPTCHA_PROXY_URL)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Loading spinner
+                    if (isLoading && loadError == null) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(36.dp),
+                            strokeWidth = 2.5.dp,
+                            color = SkyflowColors.AccentLight
+                        )
+                    }
+
+                    // Error state (after all retries)
+                    if (loadError != null && !isLoading) {
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                loadError!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SkyflowColors.ErrorColor,
+                                textAlign = TextAlign.Center
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    retryAttempt = 0
+                                    isLoading = true
+                                    loadError = null
+                                    webViewRef?.loadUrl(CAPTCHA_PROXY_URL)
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = SkyflowColors.AccentLight
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp, SkyflowColors.AccentLight.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Text("Повторить", fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+
+                // Bottom safe area spacer
+                Spacer(Modifier.height(8.dp))
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                "🔒 Данные остаются на устройстве",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
