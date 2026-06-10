@@ -57,6 +57,12 @@ private fun detectInputType(text: String): InputType = when {
     else                                      -> InputType.UNKNOWN
 }
 
+/** Разрешены только ссылки с доменом skypath.fun или его поддоменов. */
+private fun isSkypathUrl(url: String): Boolean = try {
+    val host = java.net.URL(url.trim()).host.lowercase()
+    host == "skypath.fun" || host.endsWith(".skypath.fun")
+} catch (_: Exception) { false }
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 @Composable
 fun ServersScreen(
@@ -116,9 +122,15 @@ fun ServersScreen(
                 savedSubUrl = ""
             }
             InputType.SUBSCRIPTION -> {
-                settingsStore.saveVlessInputMode("subscription")
-                settingsStore.saveSubscriptionUrl(inputText)
-                savedSubUrl = inputText
+                if (!isSkypathUrl(inputText)) {
+                    error = "Допустимы только ссылки от skypath.fun"
+                    savedSubUrl = ""
+                } else {
+                    error = null
+                    settingsStore.saveVlessInputMode("subscription")
+                    settingsStore.saveSubscriptionUrl(inputText)
+                    savedSubUrl = inputText
+                }
             }
             InputType.UNKNOWN -> { /* just keep typing */ }
         }
@@ -189,6 +201,10 @@ fun ServersScreen(
 
     // ── Manual refresh action ─────────────────────────────────────────────
     fun refreshSubscription() {
+        if (!isSkypathUrl(inputText)) {
+            error = "Допустимы только ссылки от skypath.fun"
+            return
+        }
         scope.launch {
             isLoading = true
             error = null

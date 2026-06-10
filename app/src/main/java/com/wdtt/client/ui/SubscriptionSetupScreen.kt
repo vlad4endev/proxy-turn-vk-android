@@ -58,6 +58,13 @@ fun SubscriptionSetupScreen(
 
     fun loadSubscription() {
         if (url.isBlank() || isLoading) return
+        // Разрешены только ссылки от skypath.fun
+        val host = try { java.net.URL(url.trim()).host.lowercase() } catch (_: Exception) { "" }
+        val isAllowed = host == "skypath.fun" || host.endsWith(".skypath.fun")
+        if (!isAllowed) {
+            errorMsg = "Допустимы только ссылки от skypath.fun"
+            return
+        }
         scope.launch {
             isLoading = true
             result    = null
