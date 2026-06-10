@@ -1,6 +1,6 @@
 // StubViews.swift — SKYFLOW VPN iOS
-// Placeholder screens: Onboarding, Exclusions, Logs, Info.
-// Replace with full implementations.
+// Placeholder screens: Onboarding, Logs, Info.
+// ExclusionsView → ExclusionsView.swift (full implementation)
 
 import SwiftUI
 
@@ -38,23 +38,6 @@ struct OnboardingView: View {
             Spacer(minLength: 40)
         }
         .background(c.background.ignoresSafeArea())
-    }
-}
-
-// MARK: - Exclusions
-
-struct ExclusionsView: View {
-    @Environment(\.skyflow) var c
-    var body: some View {
-        NavigationView {
-            List {
-                Text("Исключения приложений")
-                    .foregroundColor(c.textSecondary)
-            }
-            .navigationTitle("Исключения")
-            .background(c.background)
-        }
-        // TODO: List installed apps with toggle, mirror Android ExceptionsTab.kt
     }
 }
 

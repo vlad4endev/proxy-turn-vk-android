@@ -41,8 +41,15 @@ final class SettingsStore: ObservableObject {
     @Published var permissionsSetupDone: Bool      { didSet { set("permissions_setup_done", permissionsSetupDone) } }
     @Published var subscriptionSetupDone: Bool     { didSet { set("subscription_setup_done", subscriptionSetupDone) } }
 
-    // MARK: - Excluded apps
+    // MARK: - Excluded apps (Android key — kept for cross-platform compatibility)
     @Published var excludedApps: String        { didSet { set("excluded_apps", excludedApps) } }
+
+    // MARK: - Domain exclusions (iOS-specific; applied by PacketTunnelProvider)
+    /// Comma-separated list of domains/IPs to route outside the tunnel (blacklist)
+    /// or exclusively through the tunnel (whitelist), depending on `isWhitelist`.
+    @Published var excludedDomains: String     { didSet { set("excluded_domains", excludedDomains) } }
+    /// false = bypass selected domains (blacklist); true = only route selected domains (whitelist)
+    @Published var isWhitelist: Bool           { didSet { set("is_whitelist", isWhitelist) } }
 
     // MARK: - Theme
     @Published var themeMode: String           { didSet { set("theme_mode", themeMode) } }
@@ -70,6 +77,8 @@ final class SettingsStore: ObservableObject {
         permissionsSetupDone   = defaults.bool(forKey: "permissions_setup_done")
         subscriptionSetupDone  = defaults.bool(forKey: "subscription_setup_done")
         excludedApps           = defaults.string(forKey: "excluded_apps") ?? ""
+        excludedDomains        = defaults.string(forKey: "excluded_domains") ?? ""
+        isWhitelist            = defaults.bool(forKey: "is_whitelist")
         themeMode              = defaults.string(forKey: "theme_mode") ?? "dark"
     }
 
