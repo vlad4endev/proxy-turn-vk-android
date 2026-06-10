@@ -45,17 +45,17 @@ object SkyflowColors {
 
     val GlassSurface get() =
         if (dark) Color(0xFF1C1C30).copy(alpha = 0.72f)
-        else Color(0xFFFFFFFF).copy(alpha = 0.82f)
+        else Color(0xFFEEEEF8)            // opaque card — no transparency in light mode
 
     val GlassSurfaceElevated get() =
         if (dark) Color(0xFF242438).copy(alpha = 0.85f)
-        else Color(0xFFFAFAFF).copy(alpha = 0.95f)
+        else Color(0xFFFFFFFF)            // pure white elevated card
 
     val Border get() =
-        if (dark) Color(0xFF2A2A42) else Color(0xFFDDDDEE)
+        if (dark) Color(0xFF2A2A42) else Color(0xFFC0C0D8)  // darker, clearly visible
 
     val BorderAccent get() =
-        if (dark) Color(0xFF3D3D5C) else Color(0xFFAAAACC)
+        if (dark) Color(0xFF3D3D5C) else Color(0xFF9090B8)  // darker accent border
 
     val BorderGlow get() =
         if (dark) Color(0xFF6366F1).copy(alpha = 0.35f)
@@ -87,7 +87,7 @@ object SkyflowColors {
     val TextSecondary get() =
         if (dark) Color(0xFF9CA3AF) else Color(0xFF4B5563)
     val TextMuted get() =
-        if (dark) Color(0xFF6B7280) else Color(0xFF9CA3AF)
+        if (dark) Color(0xFF6B7280) else Color(0xFF5C6470)  // darker in light mode for readability
     val TextAccent get() =
         if (dark) Color(0xFFC4B5FD) else Color(0xFF6D28D9)
 
@@ -100,10 +100,10 @@ object SkyflowColors {
     // ── Nav ───────────────────────────────────────────────────────────────
     val NavBg get() =
         if (dark) Color(0xFF0E0E1A).copy(alpha = 0.88f)
-        else Color(0xFFFFFFFF).copy(alpha = 0.94f)
+        else Color(0xFFF2F2FA)            // solid light background for nav bar
     val NavBorder get() =
         if (dark) Color(0xFF2A2A42).copy(alpha = 0.6f)
-        else Color(0xFFE5E7EB).copy(alpha = 0.8f)
+        else Color(0xFFCCCCE0)            // visible separator line
     val OnAccent = Color(0xFFFFFFFF)
 
     // ── Brand ─────────────────────────────────────────────────────────────

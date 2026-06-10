@@ -1293,26 +1293,13 @@ fun TunnelTab() {
         }
     }
 
-        AnimatedVisibility(
-            visible = showCaptcha,
-            modifier = Modifier.fillMaxSize(),
-            enter = fadeIn(animationSpec = tween(300)) +
-                slideInVertically(
-                    initialOffsetY = { it / 4 },
-                    animationSpec = tween(300)
-                ),
-            exit = fadeOut(animationSpec = tween(200)) +
-                slideOutVertically(
-                    targetOffsetY = { it / 4 },
-                    animationSpec = tween(200)
-                )
-        ) {
-            CaptchaModal(
-                isVisible = showCaptcha,
-                onDismiss = { TunnelManager.dismissCaptchaModal() },
-                onCaptchaSolved = { TunnelManager.onCaptchaSolved() }
-            )
-        }
+        // CaptchaModal manages its own bottom-sheet animations (dim fade + sheet slide).
+        // Do NOT wrap in outer AnimatedVisibility — it conflicts with the inner ones.
+        CaptchaModal(
+            isVisible = showCaptcha,
+            onDismiss = { TunnelManager.dismissCaptchaModal() },
+            onCaptchaSolved = { TunnelManager.onCaptchaSolved() }
+        )
 
         if (showServersScreen) {
             ServersScreen(

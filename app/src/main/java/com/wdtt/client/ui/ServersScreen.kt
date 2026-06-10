@@ -111,11 +111,32 @@ fun ServersScreen(
         }
     }
 
-    // ── Auto-refresh subscription every 5 minutes ─────────────────────────
+    // ── Auto-refresh subscription (immediate on open, then every 5 minutes) ──
     LaunchedEffect(savedSubUrl) {
         if (savedSubUrl.isNotBlank()) {
+            // Immediate fetch when screen opens (or URL changes)
+            try {
+                isLoading = true
+                val result = SubscriptionParser.fetchSubscription(savedSubUrl)
+                if (result.servers.isNotEmpty()) {
+                    val reselected = result.servers.mapIndexed { i, s ->
+                        s.copy(isSelected = i == selectedIndex)
+                    }
+                    servers = reselected
+                    settingsStore.saveServers(reselected)
+                    val now = System.currentTimeMillis()
+                    settingsStore.saveLastSubUpdate(now)
+                    lastUpdate = now
+                    if (result.expireAt > 0L) {
+                        subExpireAt = result.expireAt
+                        settingsStore.saveSubExpireAt(result.expireAt)
+                    }
+                }
+            } catch (_: Exception) { /* silent */ }
+            finally { isLoading = false }
+            // Then keep refreshing every 5 minutes
             while (true) {
-                delay(300_000L) // 5 min
+                delay(300_000L)
                 try {
                     val result = SubscriptionParser.fetchSubscription(savedSubUrl)
                     if (result.servers.isNotEmpty()) {
@@ -377,8 +398,9 @@ fun ServersScreen(
                         }
                     }
 
-                    // Expiry badge
-                    if (subExpireAt > 0L) {
+                    // Expiry badge — always show once servers are loaded
+                    // (shows "дата не указана" if provider doesn't return expiry)
+                    if (servers.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
                         ExpiryBadge(expireAt = subExpireAt)
                     }
@@ -513,6 +535,37 @@ private fun InputTypeBadge(type: InputType) {
 // ─── Subscription expiry banner ───────────────────────────────────────────────
 @Composable
 private fun ExpiryBadge(expireAt: Long) {
+    // Provider didn't include expiry info
+    if (expireAt == 0L) {
+        Surface(
+            shape  = SkyflowShapes.Chip,
+            color  = SkyflowColors.TextMuted.copy(alpha = 0.07f),
+            border = BorderStroke(1.dp, SkyflowColors.TextMuted.copy(alpha = 0.18f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector        = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint               = SkyflowColors.TextMuted,
+                    modifier           = Modifier.size(18.dp)
+                )
+                Text(
+                    "Провайдер не указал срок действия",
+                    style      = MaterialTheme.typography.labelMedium,
+                    color      = SkyflowColors.TextMuted,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+        return
+    }
+
     val nowSec   = System.currentTimeMillis() / 1000L
     val secondsLeft = expireAt - nowSec
     val daysLeft    = TimeUnit.SECONDS.toDays(secondsLeft)

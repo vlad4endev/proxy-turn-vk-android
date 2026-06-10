@@ -484,8 +484,10 @@ object TunnelManager {
             return
         }
 
+        val t2s: Tun2SocksHelper
         try {
-            tun2socksHelper = Tun2SocksHelper(service)
+            t2s = Tun2SocksHelper(service)
+            tun2socksHelper = t2s
         } catch (e: Throwable) {
             running.value = false
             connectionStage.value = ConnectionStage.FAILED
@@ -496,7 +498,7 @@ object TunnelManager {
 
         try {
             val socksPort = xrayHelper?.socksPort() ?: 10808
-            tun2socksHelper!!.start("127.0.0.1", socksPort)
+            t2s.start("127.0.0.1", socksPort)  // use local var — immune to stop() nulling the field
             updateLog("tun_started", "[TUN] Интерфейс создан, tun2socks запущен (SOCKS5 :$socksPort)", 1, false)
         } catch (e: Throwable) {
             running.value = false
@@ -508,7 +510,7 @@ object TunnelManager {
 
         delay(1000) // ждём поднятия TUN
 
-        if (tun2socksHelper?.isRunning() == true) {
+        if (t2s.isRunning()) {
             connectionStage.value = ConnectionStage.VPN_READY
             connectionHint.value = ""
             markConnectedIfNeeded()

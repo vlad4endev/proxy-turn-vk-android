@@ -46,8 +46,16 @@ object SubscriptionParser {
                 val body = connection.inputStream.bufferedReader().use { it.readText() }
                 if (body.isBlank()) throw IOException("Пустой ответ")
 
+                // Fallback: if header didn't have expiry, try to find it in decoded body
+                val finalExpireAt = if (expireAt > 0L) expireAt else {
+                    val decoded = try {
+                        String(android.util.Base64.decode(body.trim(), android.util.Base64.DEFAULT), Charsets.UTF_8)
+                    } catch (_: Exception) { body }
+                    parseExpireFromBody(decoded)
+                }
+
                 val servers = parseSubscriptionBody(body)
-                SubscriptionResult(servers = servers, expireAt = expireAt)
+                SubscriptionResult(servers = servers, expireAt = finalExpireAt)
             } finally {
                 connection.disconnect()
             }
@@ -71,6 +79,15 @@ object SubscriptionParser {
         } catch (_: Exception) {
             0L
         }
+    }
+
+    /**
+     * Fallback: scan decoded subscription body for `expire=TIMESTAMP` or `expire:TIMESTAMP`
+     * patterns (10-digit Unix timestamp). Used when the `subscription-userinfo` header is absent.
+     */
+    fun parseExpireFromBody(body: String): Long {
+        val regex = Regex("""expire[=:]\s*(\d{10})""")
+        return regex.find(body)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
     }
 
     fun parseSubscriptionBody(body: String): List<VlessServer> {
