@@ -34,6 +34,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wdtt.client.SettingsStore
+import com.wdtt.client.xray.CheckStatus
+import com.wdtt.client.xray.ServerCheckResult
+import com.wdtt.client.xray.ServerTester
 import com.wdtt.client.xray.SubscriptionParser
 import com.wdtt.client.xray.VlessServer
 import com.wdtt.client.xray.XrayRoutingMode
@@ -76,6 +79,8 @@ fun ServersScreen(
     var subExpireAt  by remember { mutableLongStateOf(settingsStore.getSubExpireAt()) }
     var isLoading    by remember { mutableStateOf(false) }
     var isPinging    by remember { mutableStateOf(false) }
+    var isChecking   by remember { mutableStateOf(false) }
+    var checkResults by remember { mutableStateOf<List<ServerCheckResult>>(emptyList()) }
     var error        by remember { mutableStateOf<String?>(null) }
     var routingMode  by remember { mutableStateOf(settingsStore.getRoutingMode()) }
     var subTitle     by remember { mutableStateOf(settingsStore.getSubTitle()) }
@@ -366,9 +371,10 @@ fun ServersScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Refresh subscription
                         Button(
                             onClick  = ::refreshSubscription,
-                            enabled  = inputText.isNotBlank() && !isLoading,
+                            enabled  = inputText.isNotBlank() && !isLoading && !isChecking,
                             modifier = Modifier.weight(1f),
                             colors   = ButtonDefaults.buttonColors(
                                 containerColor = SkyflowColors.Accent,
@@ -388,6 +394,7 @@ fun ServersScreen(
                             Text("Обновить")
                         }
 
+                        // Ping (TCP)
                         OutlinedButton(
                             onClick  = {
                                 scope.launch {
@@ -400,13 +407,81 @@ fun ServersScreen(
                                     isPinging = false
                                 }
                             },
-                            enabled  = servers.isNotEmpty() && !isPinging,
+                            enabled  = servers.isNotEmpty() && !isPinging && !isChecking,
                             colors   = ButtonDefaults.outlinedButtonColors(
                                 contentColor = SkyflowColors.TextPrimary
                             ),
                             border   = BorderStroke(1.dp, SkyflowColors.Border)
                         ) {
                             Text(if (isPinging) "..." else "Пинг")
+                        }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+
+                    // YouTube check — full row
+                    Button(
+                        onClick  = {
+                            if (isChecking) return@Button
+                            scope.launch {
+                                isChecking   = true
+                                checkResults = emptyList()
+                                error        = null
+                                val tester   = ServerTester(context)
+                                tester.testAll(
+                                    servers     = servers,
+                                    onProgress  = { results -> checkResults = results },
+                                    onBestFound = { bestIdx ->
+                                        if (bestIdx >= 0) {
+                                            selectedIndex = bestIdx
+                                            scope.launch {
+                                                settingsStore.saveSelectedServerIndex(bestIdx)
+                                                val updated = servers.mapIndexed { i, s ->
+                                                    s.copy(isSelected = i == bestIdx)
+                                                }
+                                                servers = updated
+                                                settingsStore.saveServers(updated)
+                                            }
+                                        }
+                                    },
+                                )
+                                isChecking = false
+                            }
+                        },
+                        enabled  = servers.isNotEmpty() && !isChecking && !isLoading,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors   = ButtonDefaults.buttonColors(
+                            containerColor = SkyflowColors.Connected.copy(alpha = 0.15f),
+                            contentColor   = SkyflowColors.Connected,
+                            disabledContainerColor = SkyflowColors.Border.copy(alpha = 0.5f),
+                            disabledContentColor   = SkyflowColors.TextMuted
+                        ),
+                        border = BorderStroke(1.dp,
+                            if (servers.isNotEmpty() && !isChecking) SkyflowColors.Connected.copy(alpha = 0.4f)
+                            else SkyflowColors.Border
+                        ),
+                        shape  = SkyflowShapes.Chip
+                    ) {
+                        if (isChecking) {
+                            val done  = checkResults.count { it.status == CheckStatus.OK || it.status == CheckStatus.FAIL }
+                            val ok    = checkResults.count { it.status == CheckStatus.OK }
+                            CircularProgressIndicator(
+                                modifier    = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color       = SkyflowColors.Connected
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Проверка $done/${servers.size}  ✅ $ok",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else {
+                            val prevOk = checkResults.count { it.status == CheckStatus.OK }
+                            if (prevOk > 0) {
+                                Text("▶ Проверка YouTube: $prevOk/${servers.size} рабочих", fontWeight = FontWeight.SemiBold)
+                            } else {
+                                Text("▶ Проверить серверы через YouTube", fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
 
@@ -494,9 +569,10 @@ fun ServersScreen(
 
                 servers.forEachIndexed { index, server ->
                     ServerCard(
-                        server     = server,
-                        isSelected = index == selectedIndex,
-                        onClick    = {
+                        server      = server,
+                        isSelected  = index == selectedIndex,
+                        checkResult = checkResults.getOrNull(index),
+                        onClick     = {
                             selectedIndex = index
                             scope.launch {
                                 settingsStore.saveSelectedServerIndex(index)
@@ -898,27 +974,35 @@ private fun ProtocolBadge(label: String) {
 // ─── Server card ──────────────────────────────────────────────────────────────
 @Composable
 private fun ServerCard(
-    server: VlessServer,
-    isSelected: Boolean,
-    onClick: () -> Unit
+    server:      VlessServer,
+    isSelected:  Boolean,
+    checkResult: ServerCheckResult?,
+    onClick:     () -> Unit,
 ) {
+    val borderColor = when (checkResult?.status) {
+        CheckStatus.OK   -> SkyflowColors.Connected.copy(alpha = if (isSelected) 1f else 0.45f)
+        CheckStatus.FAIL -> SkyflowColors.ErrorColor.copy(alpha = 0.35f)
+        else             -> if (isSelected) SkyflowColors.Accent else SkyflowColors.Border
+    }
+    val borderWidth = if (isSelected || checkResult?.status == CheckStatus.OK) 2.dp else 1.dp
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) SkyflowColors.AccentMuted else SkyflowColors.GlassSurface
+            containerColor = when {
+                isSelected                       -> SkyflowColors.AccentMuted
+                checkResult?.status == CheckStatus.OK   -> SkyflowColors.Connected.copy(alpha = 0.06f)
+                checkResult?.status == CheckStatus.FAIL -> SkyflowColors.ErrorColor.copy(alpha = 0.04f)
+                else                             -> SkyflowColors.GlassSurface
+            }
         ),
-        border = if (isSelected)
-            BorderStroke(2.dp, SkyflowColors.Accent)
-        else
-            BorderStroke(1.dp, SkyflowColors.Border),
-        shape = SkyflowShapes.Card
+        border = BorderStroke(borderWidth, borderColor),
+        shape  = SkyflowShapes.Card
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
+            modifier          = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             RadioButton(
@@ -951,22 +1035,56 @@ private fun ServerCard(
                     if (server.security.isNotBlank() && server.security != "none") ProtocolBadge(server.security.uppercase())
                 }
             }
-            when {
-                server.latency > 0 -> {
-                    val latencyColor = when {
-                        server.latency < 100 -> Color(0xFF4CAF50)
-                        server.latency < 300 -> Color(0xFFFFC107)
-                        else                 -> Color(0xFFF44336)
-                    }
-                    Text(
-                        "${server.latency}ms",
-                        color      = latencyColor,
-                        style      = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
+            Spacer(Modifier.width(8.dp))
+            // Right column: check status + TCP latency
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                when (checkResult?.status) {
+                    CheckStatus.TESTING -> CircularProgressIndicator(
+                        modifier    = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color       = SkyflowColors.AccentLight
                     )
-                }
-                server.latency == -1L -> {
-                    Text("—", style = MaterialTheme.typography.labelMedium, color = SkyflowColors.TextMuted)
+                    CheckStatus.OK -> Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            "✅ YouTube",
+                            style      = MaterialTheme.typography.labelSmall,
+                            color      = SkyflowColors.Connected,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if ((checkResult.latencyMs) > 0) {
+                            Text(
+                                "${checkResult.latencyMs}ms",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = when {
+                                    checkResult.latencyMs < 300  -> SkyflowColors.Connected
+                                    checkResult.latencyMs < 1000 -> SkyflowColors.WarnColor
+                                    else                         -> SkyflowColors.ErrorColor
+                                }
+                            )
+                        }
+                    }
+                    CheckStatus.FAIL -> Text(
+                        "❌ Недоступен",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = SkyflowColors.ErrorColor
+                    )
+                    else -> when {
+                        server.latency > 0 -> Text(
+                            "${server.latency}ms",
+                            color      = when {
+                                server.latency < 100 -> Color(0xFF4CAF50)
+                                server.latency < 300 -> Color(0xFFFFC107)
+                                else                 -> Color(0xFFF44336)
+                            },
+                            style      = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        server.latency == -1L -> Text(
+                            "—",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = SkyflowColors.TextMuted
+                        )
+                    }
                 }
             }
         }
