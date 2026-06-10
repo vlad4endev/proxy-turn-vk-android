@@ -46,10 +46,11 @@ fun SubscriptionSetupScreen(
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
 
-    var url       by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
-    var result    by remember { mutableStateOf<SubscriptionResult?>(null) }
-    var errorMsg  by remember { mutableStateOf<String?>(null) }
+    var url           by remember { mutableStateOf("") }
+    var isLoading     by remember { mutableStateOf(false) }
+    var result        by remember { mutableStateOf<SubscriptionResult?>(null) }
+    var errorMsg      by remember { mutableStateOf<String?>(null) }
+    var isWrongDomain by remember { mutableStateOf(false) }
 
     val isValidUrl = url.trimStart().let {
         it.startsWith("https://") || it.startsWith("http://")
@@ -62,9 +63,11 @@ fun SubscriptionSetupScreen(
         val host = try { java.net.URL(url.trim()).host.lowercase() } catch (_: Exception) { "" }
         val isAllowed = host == "skypath.fun" || host.endsWith(".skypath.fun")
         if (!isAllowed) {
-            errorMsg = "Допустимы только ссылки от skypath.fun"
+            isWrongDomain = true
+            errorMsg = null
             return
         }
+        isWrongDomain = false
         scope.launch {
             isLoading = true
             result    = null
@@ -161,9 +164,10 @@ fun SubscriptionSetupScreen(
             OutlinedTextField(
                 value         = url,
                 onValueChange = {
-                    url     = it
-                    result  = null
-                    errorMsg = null
+                    url          = it
+                    result       = null
+                    errorMsg     = null
+                    isWrongDomain = false
                 },
                 label         = { Text("Ссылка подписки") },
                 placeholder   = { Text("https://sub.example.com/...") },
@@ -249,6 +253,92 @@ fun SubscriptionSetupScreen(
                     Text("Загрузка...", fontWeight = FontWeight.SemiBold)
                 } else {
                     Text("Загрузить серверы", fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            // ── Wrong-domain banner ───────────────────────────────────────────
+            AnimatedVisibility(
+                visible = isWrongDomain,
+                enter   = fadeIn(tween(250)) + expandVertically(tween(250)),
+                exit    = fadeOut(tween(150)) + shrinkVertically(tween(150))
+            ) {
+                Column {
+                    Spacer(Modifier.height(12.dp))
+                    Surface(
+                        shape    = SkyflowShapes.Card,
+                        color    = SkyflowColors.ErrorColor.copy(alpha = 0.08f),
+                        border   = androidx.compose.foundation.BorderStroke(
+                            1.dp, SkyflowColors.ErrorColor.copy(alpha = 0.28f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment     = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("⛔", fontSize = 20.sp)
+                                Column {
+                                    Text(
+                                        "Это не подписка SKYFLOW VPN",
+                                        fontFamily  = interFontFamily,
+                                        fontWeight  = FontWeight.Bold,
+                                        fontSize    = 14.sp,
+                                        color       = SkyflowColors.ErrorColor
+                                    )
+                                    Text(
+                                        "Для продолжения работы купите подписку",
+                                        fontFamily = interFontFamily,
+                                        fontSize   = 13.sp,
+                                        color      = SkyflowColors.TextSecondary
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Surface(
+                                    shape  = SkyflowShapes.Chip,
+                                    color  = SkyflowColors.Accent.copy(alpha = 0.12f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        0.5.dp, SkyflowColors.Accent.copy(alpha = 0.3f)
+                                    )
+                                ) {
+                                    Text(
+                                        "300 ₽ / месяц",
+                                        fontFamily  = interFontFamily,
+                                        fontWeight  = FontWeight.Bold,
+                                        fontSize    = 14.sp,
+                                        color       = SkyflowColors.AccentLight,
+                                        modifier    = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        val ctx = context
+                                        ctx.startActivity(
+                                            android.content.Intent(
+                                                android.content.Intent.ACTION_VIEW,
+                                                android.net.Uri.parse("https://t.me/skypathvpn_bot")
+                                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = SkyflowColors.Accent,
+                                        contentColor   = SkyflowColors.OnAccent
+                                    ),
+                                    shape = SkyflowShapes.Chip
+                                ) {
+                                    Text("✈  Купить в Telegram", fontFamily = interFontFamily, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

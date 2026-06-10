@@ -2,6 +2,8 @@ package com.wdtt.client.ui
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -88,6 +90,7 @@ fun ServersScreen(
     var isChecking   by remember { mutableStateOf(false) }
     var checkResults by remember { mutableStateOf<List<ServerCheckResult>>(emptyList()) }
     var error        by remember { mutableStateOf<String?>(null) }
+    var isWrongDomain by remember { mutableStateOf(false) }
     var routingMode  by remember { mutableStateOf(settingsStore.getRoutingMode()) }
     var subTitle     by remember { mutableStateOf(settingsStore.getSubTitle()) }
     var subUpload    by remember { mutableLongStateOf(settingsStore.getSubUpload()) }
@@ -108,6 +111,7 @@ fun ServersScreen(
     LaunchedEffect(inputText) {
         when (detectInputType(inputText)) {
             InputType.VLESS_URI -> {
+                isWrongDomain = false
                 settingsStore.saveVlessInputMode("manual")
                 settingsStore.saveManualVlessUri(inputText)
                 // Parse and apply immediately
@@ -123,16 +127,20 @@ fun ServersScreen(
             }
             InputType.SUBSCRIPTION -> {
                 if (!isSkypathUrl(inputText)) {
-                    error = "Допустимы только ссылки от skypath.fun"
+                    isWrongDomain = true
+                    error = null
                     savedSubUrl = ""
                 } else {
+                    isWrongDomain = false
                     error = null
                     settingsStore.saveVlessInputMode("subscription")
                     settingsStore.saveSubscriptionUrl(inputText)
                     savedSubUrl = inputText
                 }
             }
-            InputType.UNKNOWN -> { /* just keep typing */ }
+            InputType.UNKNOWN -> {
+                isWrongDomain = false
+            }
         }
     }
 
@@ -202,9 +210,11 @@ fun ServersScreen(
     // ── Manual refresh action ─────────────────────────────────────────────
     fun refreshSubscription() {
         if (!isSkypathUrl(inputText)) {
-            error = "Допустимы только ссылки от skypath.fun"
+            isWrongDomain = true
+            error = null
             return
         }
+        isWrongDomain = false
         scope.launch {
             isLoading = true
             error = null
@@ -534,6 +544,81 @@ fun ServersScreen(
                     }
 
                     Spacer(Modifier.height(4.dp))
+                }
+            }
+
+            // ── Wrong-domain banner ────────────────────────────────────────
+            AnimatedVisibility(visible = isWrongDomain) {
+                Column {
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = SkyflowShapes.Card,
+                        color    = SkyflowColors.ErrorColor.copy(alpha = 0.08f),
+                        border   = BorderStroke(1.dp, SkyflowColors.ErrorColor.copy(alpha = 0.28f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment     = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("⛔", fontSize = 20.sp)
+                                Column {
+                                    Text(
+                                        "Это не подписка SKYFLOW VPN",
+                                        fontFamily  = interFontFamily,
+                                        fontWeight  = FontWeight.Bold,
+                                        fontSize    = 14.sp,
+                                        color       = SkyflowColors.ErrorColor
+                                    )
+                                    Text(
+                                        "Для продолжения работы купите подписку",
+                                        fontFamily = interFontFamily,
+                                        fontSize   = 13.sp,
+                                        color      = SkyflowColors.TextSecondary
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Surface(
+                                    shape  = SkyflowShapes.Chip,
+                                    color  = SkyflowColors.Accent.copy(alpha = 0.12f),
+                                    border = BorderStroke(0.5.dp, SkyflowColors.Accent.copy(alpha = 0.3f))
+                                ) {
+                                    Text(
+                                        "300 ₽ / месяц",
+                                        fontFamily  = interFontFamily,
+                                        fontWeight  = FontWeight.Bold,
+                                        fontSize    = 14.sp,
+                                        color       = SkyflowColors.AccentLight,
+                                        modifier    = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = SkyflowColors.Accent,
+                                        contentColor   = SkyflowColors.OnAccent
+                                    ),
+                                    shape = SkyflowShapes.Chip
+                                ) {
+                                    Text("✈  Купить в Telegram", fontFamily = interFontFamily, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
