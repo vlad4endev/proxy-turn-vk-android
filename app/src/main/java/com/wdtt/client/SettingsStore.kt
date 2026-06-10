@@ -103,6 +103,7 @@ class SettingsStore(context: Context) {
 
         private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
         private val PERMISSIONS_SETUP_DONE = booleanPreferencesKey("permissions_setup_done")
+        private val SUBSCRIPTION_SETUP_DONE = booleanPreferencesKey("subscription_setup_done")
         private val LINK_CREATED_AT = longPreferencesKey("link_created_at")
 
         // ═══ VLESS Subscription / Manual ═══
@@ -322,12 +323,19 @@ class SettingsStore(context: Context) {
     val permissionsSetupDone: Flow<Boolean> = dataStore.data
         .map { prefs -> prefs[PERMISSIONS_SETUP_DONE] ?: false }
 
+    val subscriptionSetupDone: Flow<Boolean> = dataStore.data
+        .map { prefs -> prefs[SUBSCRIPTION_SETUP_DONE] ?: false }
+
     suspend fun setOnboardingDone() {
         dataStore.edit { prefs -> prefs[ONBOARDING_DONE] = true }
     }
 
     suspend fun setPermissionsSetupDone() {
         dataStore.edit { prefs -> prefs[PERMISSIONS_SETUP_DONE] = true }
+    }
+
+    suspend fun setSubscriptionSetupDone() {
+        dataStore.edit { prefs -> prefs[SUBSCRIPTION_SETUP_DONE] = true }
     }
 
     suspend fun saveThemeMode(mode: String) {

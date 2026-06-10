@@ -173,19 +173,22 @@ fun TunnelTab() {
     var showServersScreen by rememberSaveable { mutableStateOf(false) }
     val activeSpeedServer by TunnelManager.activeSpeedServer.collectAsStateWithLifecycle()
 
-    // ── Subscription expiry gate ──────────────────────────────────────────────
+    // ── Subscription / VLESS gate ─────────────────────────────────────────────
     val isSubMode = remember { store.getVlessInputMode() == "subscription" }
-    var subExpireAt by remember { mutableLongStateOf(store.getSubExpireAt()) }
+    var subExpireAt  by remember { mutableLongStateOf(store.getSubExpireAt()) }
+    var hasServers   by remember { mutableStateOf(store.loadServers().isNotEmpty()) }
     val isSubExpired by remember {
         derivedStateOf {
-            isSubMode && subExpireAt > 0L && subExpireAt < System.currentTimeMillis() / 1000L
+            subExpireAt > 0L && subExpireAt < System.currentTimeMillis() / 1000L
         }
     }
-    // Re-read expiry every 30s so it auto-unlocks after payment + subscription refresh
+    val isVlessBlocked by remember { derivedStateOf { !hasServers || isSubExpired } }
+    // Re-read every 30s — auto-unlocks after payment + subscription refresh
     LaunchedEffect(Unit) {
         while (true) {
             delay(30_000L)
             subExpireAt = store.getSubExpireAt()
+            hasServers  = store.loadServers().isNotEmpty()
         }
     }
 
@@ -232,8 +235,8 @@ fun TunnelTab() {
     }
     val vkHash = remember(vkLink) { parseVkHash(vkLink) }
     val powerEnabled = tunnelRunning || isStarting ||
-        (!isSubExpired && isSpeedMode) ||
-        (!isSubExpired && vkLink.isNotBlank() && vkHash.isNotBlank())
+        (!isVlessBlocked && isSpeedMode) ||
+        (!isVlessBlocked && vkLink.isNotBlank() && vkHash.isNotBlank())
 
     LaunchedEffect(tunnelRunning, activeWorkers, connectionStage, isSpeedMode) {
         when {
@@ -437,11 +440,14 @@ fun TunnelTab() {
     }
 
     val onPowerClick: () -> Unit = {
-        if (isSubExpired && !tunnelRunning && !isStarting) {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
+        if (isVlessBlocked && !tunnelRunning && !isStarting) {
+            if (isSubExpired) {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+            // else: no servers — do nothing, banner with navigation is already visible
         } else if (tunnelRunning || isStarting) {
             isStarting = false
             disconnectTunnel(context)
@@ -553,11 +559,11 @@ fun TunnelTab() {
             hint = connectionHint,
         )
 
-        // ── Subscription expired banner ────────────────────────────────────
+        // ── VLESS / subscription gate banner ──────────────────────────────
         AnimatedVisibility(
-            visible = isSubExpired && !tunnelRunning && !isStarting,
-            enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-            exit  = fadeOut(tween(200)) + shrinkVertically(tween(200))
+            visible = isVlessBlocked && !tunnelRunning && !isStarting,
+            enter   = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit    = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -576,36 +582,52 @@ fun TunnelTab() {
                         verticalAlignment     = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("⛔", fontSize = 18.sp)
+                        Text(if (isSubExpired) "⛔" else "🔒", fontSize = 18.sp)
                         Column {
                             Text(
-                                "Подписка истекла",
+                                if (isSubExpired) "Подписка истекла"
+                                else              "Подписка не настроена",
                                 style      = MaterialTheme.typography.titleSmall,
                                 color      = SkyflowColors.ErrorColor,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                "VPN и белый список недоступны до оплаты",
+                                if (isSubExpired) "VPN и белый список недоступны до оплаты"
+                                else              "Настройте VLESS-подписку для работы приложения",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = SkyflowColors.TextSecondary
                             )
                         }
                     }
-                    Button(
-                        onClick = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors   = ButtonDefaults.buttonColors(
-                            containerColor = SkyflowColors.Accent,
-                            contentColor   = SkyflowColors.OnAccent
-                        ),
-                        shape = SkyflowShapes.Chip
-                    ) {
-                        Text("✈  Оплатить через Telegram", fontWeight = FontWeight.SemiBold)
+                    if (isSubExpired) {
+                        Button(
+                            onClick  = {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors   = ButtonDefaults.buttonColors(
+                                containerColor = SkyflowColors.Accent,
+                                contentColor   = SkyflowColors.OnAccent
+                            ),
+                            shape    = SkyflowShapes.Chip
+                        ) {
+                            Text("✈  Оплатить через Telegram", fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick  = { showServersScreen = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors   = ButtonDefaults.outlinedButtonColors(
+                                contentColor = SkyflowColors.AccentLight
+                            ),
+                            border   = BorderStroke(1.dp, SkyflowColors.Accent),
+                            shape    = SkyflowShapes.Chip
+                        ) {
+                            Text("Настроить подписку →", fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }

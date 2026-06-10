@@ -64,6 +64,7 @@ import com.wdtt.client.ui.InfoTab
 import com.wdtt.client.ui.LogsTab
 import com.wdtt.client.ui.OnboardingScreen
 import com.wdtt.client.ui.SetupPermissionsScreen
+import com.wdtt.client.ui.SubscriptionSetupScreen
 import com.wdtt.client.ui.ResponsiveLayout
 import com.wdtt.client.ui.SkyflowColors
 import com.wdtt.client.ui.SkyflowShapes
@@ -108,6 +109,7 @@ class MainActivity : ComponentActivity() {
             val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle(initialValue = "system")
             val onboardingDone by settingsStore.onboardingDone.collectAsStateWithLifecycle(initialValue = false)
             val permissionsSetupDone by settingsStore.permissionsSetupDone.collectAsStateWithLifecycle(initialValue = false)
+            val subscriptionSetupDone by settingsStore.subscriptionSetupDone.collectAsStateWithLifecycle(initialValue = false)
             val scope = rememberCoroutineScope()
 
             WDTTTheme(themeMode = themeMode) {
@@ -124,6 +126,12 @@ class MainActivity : ComponentActivity() {
                             onFinish = {
                                 scope.launch { settingsStore.setPermissionsSetupDone() }
                             }
+                        )
+                    }
+                    !subscriptionSetupDone -> {
+                        SubscriptionSetupScreen(
+                            settingsStore = settingsStore,
+                            onFinish      = { /* setSubscriptionSetupDone called inside the screen */ }
                         )
                     }
                     else -> {
