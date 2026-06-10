@@ -112,36 +112,58 @@ class MainActivity : ComponentActivity() {
             val subscriptionSetupDone by settingsStore.subscriptionSetupDone.collectAsStateWithLifecycle(initialValue = false)
             val scope = rememberCoroutineScope()
 
+            // Ждём первого реального значения из DataStore перед тем как рендерить экраны.
+            // Без этого флага: на первом кадре initialValue=false → OnboardingScreen мигает,
+            // затем DataStore отдаёт true → переключается на MainScreen.
+            var settingsLoaded by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                // Три последовательных .first() — DataStore возвращает значение за ~1–5 мс.
+                settingsStore.onboardingDone.first()
+                settingsStore.permissionsSetupDone.first()
+                settingsStore.subscriptionSetupDone.first()
+                settingsLoaded = true
+            }
+
             WDTTTheme(themeMode = themeMode) {
-                when {
-                    !onboardingDone -> {
-                        OnboardingScreen(
-                            onFinish = {
-                                scope.launch { settingsStore.setOnboardingDone() }
-                            }
-                        )
-                    }
-                    !permissionsSetupDone -> {
-                        SetupPermissionsScreen(
-                            onFinish = {
-                                scope.launch { settingsStore.setPermissionsSetupDone() }
-                            }
-                        )
-                    }
-                    !subscriptionSetupDone -> {
-                        SubscriptionSetupScreen(
-                            settingsStore = settingsStore,
-                            onFinish      = { /* setSubscriptionSetupDone called inside the screen */ }
-                        )
-                    }
-                    else -> {
-                        MainScreen(
-                            settingsStore = settingsStore,
-                            themeMode = themeMode,
-                            onThemeChange = { mode ->
-                                scope.launch { settingsStore.saveThemeMode(mode) }
-                            }
-                        )
+                if (!settingsLoaded) {
+                    // DataStore ещё не загрузился — показываем пустой фон совпадающий
+                    // с цветом splash screen. Длится < 10 мс, незаметно для пользователя.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(SkyflowColors.Background)
+                    )
+                } else {
+                    when {
+                        !onboardingDone -> {
+                            OnboardingScreen(
+                                onFinish = {
+                                    scope.launch { settingsStore.setOnboardingDone() }
+                                }
+                            )
+                        }
+                        !permissionsSetupDone -> {
+                            SetupPermissionsScreen(
+                                onFinish = {
+                                    scope.launch { settingsStore.setPermissionsSetupDone() }
+                                }
+                            )
+                        }
+                        !subscriptionSetupDone -> {
+                            SubscriptionSetupScreen(
+                                settingsStore = settingsStore,
+                                onFinish      = { /* setSubscriptionSetupDone called inside the screen */ }
+                            )
+                        }
+                        else -> {
+                            MainScreen(
+                                settingsStore = settingsStore,
+                                themeMode = themeMode,
+                                onThemeChange = { mode ->
+                                    scope.launch { settingsStore.saveThemeMode(mode) }
+                                }
+                            )
+                        }
                     }
                 }
             }
