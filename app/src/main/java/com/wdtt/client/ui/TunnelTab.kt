@@ -69,6 +69,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.YandexParser
 import com.wdtt.client.LinkProvider
 import com.wdtt.client.ConnectionStage
+import com.wdtt.client.xray.SubscriptionParser
+import com.wdtt.client.xray.VlessServer
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 import com.wdtt.client.NetworkTransport
 import com.wdtt.client.rememberNetworkTransport
 import com.wdtt.client.ServerConfig
@@ -633,93 +639,21 @@ fun TunnelTab() {
             }
         }
 
+        // ── Subscription widget ────────────────────────────────────────────
         AnimatedVisibility(
-            visible = isSpeedMode && !tunnelRunning && !isStarting,
-            enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+            visible = !tunnelRunning && !isStarting,
+            enter   = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit    = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
-            val servers = remember(showServersScreen) { store.loadServers() }
-            val selectedIdx = remember(showServersScreen) { store.getSelectedServerIndex() }
-            val serverCount = servers.size
-            val selectedServer = servers.getOrNull(selectedIdx)
-            val selectedName = selectedServer?.name ?: "Не выбран"
-            val summary = if (serverCount > 0) {
-                "⚡ $selectedName"
-            } else {
-                "Настроить серверы"
-            }
-            val hostPortLine = if (selectedServer != null) {
-                "${selectedServer.host}:${selectedServer.port}"
-            } else null
-            val protocolLine = if (selectedServer != null) {
-                buildString {
-                    append("VLESS")
-                    if (selectedServer.type != "tcp") append(" · ${selectedServer.type.uppercase()}")
-                    when (selectedServer.security) {
-                        "tls" -> append(" · TLS")
-                        "reality" -> append(" · Reality")
-                    }
-                }
-            } else null
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showServersScreen = true },
-                shape = SkyflowShapes.Card,
-                color = SkyflowColors.GlassSurface,
-                border = SkyflowBorders.Glass
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            Icons.Default.Dns,
-                            contentDescription = null,
-                            tint = SkyflowColors.AccentLight,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Column {
-                            Text(
-                                "СЕРВЕРЫ",
-                                style = SkyflowTextStyles.labelUppercase,
-                                color = SkyflowColors.AccentLight
-                            )
-                            Text(
-                                summary,
-                                fontSize = readableSp(12f),
-                                color = SkyflowColors.TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (hostPortLine != null && protocolLine != null) {
-                                Text(
-                                    "$hostPortLine · $protocolLine",
-                                    fontSize = readableSp(10f),
-                                    color = SkyflowColors.TextMuted,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = SkyflowColors.TextMuted,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
+            SubscriptionWidget(
+                store        = store,
+                refreshKey   = showServersScreen,
+                onRefresh    = {
+                    subExpireAt = store.getSubExpireAt()
+                    hasServers  = store.loadServers().isNotEmpty()
+                },
+                onOpenServers = { showServersScreen = true },
+            )
         }
 
         AnimatedVisibility(
@@ -2147,6 +2081,416 @@ private suspend fun createVkCallLink(): String? {
             null
         }
     }
+}
+
+// ═══ Subscription widget ═══════════════════════════════════════════════════
+
+@Composable
+private fun SubscriptionWidget(
+    store: SettingsStore,
+    refreshKey: Any,                    // changes when ServersScreen closes → reload
+    onRefresh: () -> Unit,              // tell parent to re-read hasServers / expiry
+    onOpenServers: () -> Unit,
+) {
+    val context          = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val scope            = rememberCoroutineScope()
+
+    var servers       by remember(refreshKey) { mutableStateOf(store.loadServers()) }
+    var selectedIndex by remember(refreshKey) { mutableIntStateOf(store.getSelectedServerIndex()) }
+    var subTitle      by remember(refreshKey) { mutableStateOf(store.getSubTitle()) }
+    var subUpload     by remember(refreshKey) { mutableLongStateOf(store.getSubUpload()) }
+    var subDownload   by remember(refreshKey) { mutableLongStateOf(store.getSubDownload()) }
+    var subTotal      by remember(refreshKey) { mutableLongStateOf(store.getSubTotal()) }
+    var subExpireAt   by remember(refreshKey) { mutableLongStateOf(store.getSubExpireAt()) }
+    var isAdding      by remember { mutableStateOf(false) }
+    var addError      by remember { mutableStateOf<String?>(null) }
+
+    fun addFromClipboard() {
+        val text = clipboardManager.getText()?.toString()?.trim() ?: ""
+        val isUrl = text.startsWith("https://") || text.startsWith("http://")
+        if (!isUrl) { addError = "В буфере нет ссылки подписки"; return }
+        scope.launch {
+            isAdding  = true
+            addError  = null
+            try {
+                val result = SubscriptionParser.fetchSubscription(text)
+                if (result.servers.isEmpty()) {
+                    addError = "Серверы не найдены — проверьте ссылку"
+                } else {
+                    store.saveVlessInputMode("subscription")
+                    store.saveSubscriptionUrl(text)
+                    store.saveServers(result.servers)
+                    store.saveSubExpireAt(result.expireAt)
+                    store.saveSubTitle(result.title)
+                    store.saveSubUpload(result.upload)
+                    store.saveSubDownload(result.download)
+                    store.saveSubTotal(result.total)
+                    store.saveSubAnnounce(result.announce)
+                    store.saveSelectedServerIndex(0)
+                    servers       = result.servers
+                    selectedIndex = 0
+                    subTitle      = result.title
+                    subUpload     = result.upload
+                    subDownload   = result.download
+                    subTotal      = result.total
+                    subExpireAt   = result.expireAt
+                    onRefresh()
+                }
+            } catch (e: Exception) {
+                addError = "Не удалось загрузить: ${e.message?.take(60)}"
+            }
+            isAdding = false
+        }
+    }
+
+    Surface(
+        shape    = SkyflowShapes.Card,
+        color    = SkyflowColors.GlassSurface,
+        border   = SkyflowBorders.Glass,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column {
+            if (servers.isEmpty()) {
+                // ── No subscription: Add button ──────────────────────────
+                Column(
+                    modifier              = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment   = Alignment.CenterHorizontally,
+                    verticalArrangement   = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "VLESS-ПОДПИСКА",
+                        style = SkyflowTextStyles.labelUppercase,
+                        color = SkyflowColors.TextMuted
+                    )
+                    addError?.let { err ->
+                        Text(
+                            err,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SkyflowColors.ErrorColor
+                        )
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .clip(SkyflowShapes.Chip)
+                            .clickable(enabled = !isAdding, onClick = ::addFromClipboard),
+                        shape = SkyflowShapes.Chip,
+                        color = Color.Transparent,
+                    ) {
+                        Box(
+                            modifier         = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    if (!isAdding) SkyflowGradients.Accent
+                                    else androidx.compose.ui.graphics.Brush.linearGradient(
+                                        listOf(SkyflowColors.Border, SkyflowColors.Border)
+                                    ),
+                                    SkyflowShapes.Chip
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isAdding) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment     = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier    = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color       = SkyflowColors.TextMuted
+                                    )
+                                    Text(
+                                        "Загрузка...",
+                                        fontSize   = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color      = SkyflowColors.TextMuted
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    "+ Добавить подписку",
+                                    fontSize   = 15.sp,
+                                    fontFamily = interFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color      = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // ── Subscription info header ─────────────────────────────
+                SubWidgetHeader(
+                    title     = subTitle,
+                    upload    = subUpload,
+                    download  = subDownload,
+                    total     = subTotal,
+                    expireAt  = subExpireAt,
+                    onManage  = onOpenServers,
+                )
+
+                HorizontalDivider(color = SkyflowColors.Border)
+
+                // ── Servers label + count ────────────────────────────────
+                Row(
+                    modifier              = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "СЕРВЕРЫ",
+                        style = SkyflowTextStyles.labelUppercase,
+                        color = SkyflowColors.TextMuted
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = SkyflowColors.AccentMuted
+                    ) {
+                        Text(
+                            "${servers.size}",
+                            modifier   = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style      = MaterialTheme.typography.labelSmall,
+                            color      = SkyflowColors.AccentLight,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // ── Server rows ──────────────────────────────────────────
+                servers.forEachIndexed { idx, server ->
+                    if (idx > 0) {
+                        HorizontalDivider(
+                            color    = SkyflowColors.Border.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(start = 42.dp)
+                        )
+                    }
+                    SubWidgetServerRow(
+                        server     = server,
+                        isSelected = idx == selectedIndex,
+                        onClick    = {
+                            selectedIndex = idx
+                            scope.launch {
+                                store.saveSelectedServerIndex(idx)
+                                val updated = servers.mapIndexed { i, s -> s.copy(isSelected = i == idx) }
+                                servers = updated
+                                store.saveServers(updated)
+                            }
+                        }
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubWidgetHeader(
+    title: String,
+    upload: Long,
+    download: Long,
+    total: Long,
+    expireAt: Long,
+    onManage: () -> Unit,
+) {
+    val nowSec   = System.currentTimeMillis() / 1000L
+    val isActive = expireAt == 0L || expireAt > nowSec
+    val used     = upload + download
+    val daysLeft = if (expireAt > 0L && isActive) TimeUnit.SECONDS.toDays(expireAt - nowSec) else Long.MAX_VALUE
+
+    Column(
+        modifier            = Modifier
+            .fillMaxWidth()
+            .clickable { onManage() }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        // Title + status badge
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text       = title.ifBlank { "Подписка" },
+                style      = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color      = SkyflowColors.TextPrimary,
+                maxLines   = 1,
+                overflow   = TextOverflow.Ellipsis,
+                modifier   = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = if (isActive) SkyflowColors.Connected.copy(alpha = 0.12f)
+                        else SkyflowColors.ErrorColor.copy(alpha = 0.12f)
+            ) {
+                Row(
+                    modifier              = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .background(
+                                if (isActive) SkyflowColors.Connected else SkyflowColors.ErrorColor,
+                                CircleShape
+                            )
+                    )
+                    Text(
+                        if (isActive) "Активна" else "Истекла",
+                        style      = MaterialTheme.typography.labelSmall,
+                        color      = if (isActive) SkyflowColors.Connected else SkyflowColors.ErrorColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint     = SkyflowColors.TextMuted,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+
+        // Traffic + expiry in one compact row
+        Row(
+            modifier              = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "↑ ${subFormatBytes(upload)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SkyflowColors.TextSecondary
+                )
+                Text(
+                    "↓ ${subFormatBytes(download)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SkyflowColors.TextSecondary
+                )
+                val totalLabel = if (total > 0L) {
+                    val p = (used.toFloat() / total).coerceIn(0f, 1f)
+                    "/ ${subFormatBytes(total)}"
+                } else "/ ∞"
+                val totalColor = if (total > 0L && (used.toFloat() / total) > 0.9f)
+                    SkyflowColors.ErrorColor else SkyflowColors.TextMuted
+                Text(totalLabel, style = MaterialTheme.typography.bodySmall, color = totalColor)
+            }
+            Text(
+                text = when {
+                    expireAt == 0L -> "Бессрочно"
+                    !isActive      -> "Истекла"
+                    daysLeft < 1   -> "Сегодня"
+                    daysLeft < 30  -> "ещё ${daysLeft}д"
+                    else           -> SimpleDateFormat("d MMM", Locale("ru")).format(Date(expireAt * 1000L))
+                },
+                style      = MaterialTheme.typography.labelSmall,
+                color      = when {
+                    expireAt == 0L -> SkyflowColors.Connected
+                    !isActive      -> SkyflowColors.ErrorColor
+                    daysLeft < 7   -> SkyflowColors.ErrorColor
+                    daysLeft < 30  -> SkyflowColors.WarnColor
+                    else           -> SkyflowColors.TextMuted
+                },
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        // Progress bar (when total > 0)
+        if (total > 0L) {
+            val progress = (used.toFloat() / total).coerceIn(0f, 1f)
+            LinearProgressIndicator(
+                progress   = { progress },
+                modifier   = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
+                color      = when {
+                    progress >= 0.9f -> SkyflowColors.ErrorColor
+                    progress >= 0.7f -> SkyflowColors.WarnColor
+                    else             -> SkyflowColors.Accent
+                },
+                trackColor = SkyflowColors.Border
+            )
+        }
+    }
+}
+
+@Composable
+private fun SubWidgetServerRow(
+    server: VlessServer,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier          = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = isSelected,
+            onClick  = onClick,
+            colors   = RadioButtonDefaults.colors(
+                selectedColor   = SkyflowColors.Accent,
+                unselectedColor = SkyflowColors.TextMuted
+            ),
+            modifier = Modifier.size(32.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text       = server.name,
+                style      = MaterialTheme.typography.bodyMedium,
+                color      = if (isSelected) SkyflowColors.TextPrimary else SkyflowColors.TextSecondary,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines   = 1,
+                overflow   = TextOverflow.Ellipsis
+            )
+            Text(
+                text  = "${server.host}:${server.port}",
+                style = MaterialTheme.typography.bodySmall,
+                color = SkyflowColors.TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        // Protocol badge (most relevant info)
+        val badgeLabel = when {
+            server.security.equals("reality", ignoreCase = true) -> "REALITY"
+            server.security.equals("tls", ignoreCase = true)     -> "TLS"
+            server.type.equals("ws", ignoreCase = true)          -> "WS"
+            server.type.equals("grpc", ignoreCase = true)        -> "gRPC"
+            else                                                  -> "TCP"
+        }
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = if (isSelected) SkyflowColors.AccentMuted else SkyflowColors.GlassSurfaceElevated
+        ) {
+            Text(
+                text     = badgeLabel,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                style    = MaterialTheme.typography.labelSmall,
+                color    = if (isSelected) SkyflowColors.AccentLight else SkyflowColors.TextMuted,
+                fontSize = 10.sp
+            )
+        }
+    }
+}
+
+private fun subFormatBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    val idx   = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.lastIndex)
+    val value = bytes / Math.pow(1024.0, idx.toDouble())
+    return if (idx == 0) "$bytes B" else "%.1f %s".format(value, units[idx])
 }
 
 private fun disconnectTunnel(context: Context) {
