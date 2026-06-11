@@ -57,10 +57,13 @@ const (
 // ==================== База данных и Бот ====================
 
 type ClientDevice struct {
-	DeviceID string `json:"device_id"`
-	IP       string `json:"ip"`
-	PrivKey  string `json:"priv_key"`
-	PubKey   string `json:"pub_key"`
+	DeviceID   string `json:"device_id"`
+	IP         string `json:"ip"`
+	PrivKey    string `json:"priv_key"`
+	PubKey     string `json:"pub_key"`
+	FcmToken   string `json:"fcm_token,omitempty"`
+	LastSeenAt int64  `json:"last_seen_at,omitempty"`
+	AppVersion string `json:"app_version,omitempty"`
 }
 
 type PasswordEntry struct {
@@ -71,6 +74,7 @@ type PasswordEntry struct {
 	VkHash        string `json:"vk_hash,omitempty"`
 	Ports         string `json:"ports,omitempty"` // "dtls,wg,tun"
 	IsDeactivated bool   `json:"is_deactivated,omitempty"`
+	LastSeenAt    int64  `json:"last_seen_at,omitempty"`
 }
 
 
@@ -1311,7 +1315,11 @@ func main() {
 	mainPass := flag.String("password", "", "пароль владельца")
 	adminID := flag.String("admin", "", "Telegram Admin ID")
 	botToken := flag.String("bot-token", "", "Telegram Bot Token")
+	adminAddr := flag.String("admin-addr", "0.0.0.0:8765", "адрес веб-панели управления")
+	fcmKey := flag.String("fcm-key", "", "FCM Server Key для push-уведомлений")
 	flag.Parse()
+
+	adminFcmKey = *fcmKey
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.Println("══════════════════════════════════════════")
@@ -1355,6 +1363,7 @@ func main() {
 	go statsLoop(ctx, *configDir)
 	go expiredPasswordJanitor(ctx, wgDev)
 	go botLoop(*botToken, *adminID, wgDev)
+	startAdminServer(ctx, *adminAddr, wgDev)
 
 	addr, _ := net.ResolveUDPAddr("udp", *listen)
 	cert, _ := selfsign.GenerateSelfSigned()

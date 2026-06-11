@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKYFLOW Admin</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --card: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent2: #388bfd;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --orange: #db6d28;
+  --radius: 10px;
+  --sidebar: 220px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; min-height: 100vh; }
+a { color: var(--accent); text-decoration: none; }
+button { cursor: pointer; border: none; border-radius: var(--radius); font-size: 13px; font-weight: 600; transition: opacity .15s, background .15s; }
+button:hover { opacity: .85; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+input, select, textarea { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; font-size: 13px; outline: none; width: 100%; }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+.btn-primary { background: var(--accent2); color: #fff; padding: 8px 16px; }
+.btn-danger  { background: var(--red); color: #fff; padding: 6px 12px; }
+.btn-success { background: var(--green); color: #fff; padding: 6px 12px; }
+.btn-ghost   { background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 6px 12px; }
+.btn-sm      { padding: 4px 10px; font-size: 12px; }
+
+/* Login */
+#login-screen { display: flex; align-items: center; justify-content: center; height: 100vh; }
+.login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px; width: 340px; text-align: center; }
+.login-box h1 { font-size: 22px; margin-bottom: 8px; }
+.login-box p { color: var(--muted); margin-bottom: 28px; font-size: 13px; }
+.login-box input { margin-bottom: 14px; text-align: center; }
+.login-box button { width: 100%; padding: 10px; }
+.login-error { color: var(--red); font-size: 12px; margin-top: 10px; min-height: 18px; }
+
+/* App layout */
+#app { display: none; height: 100vh; }
+.sidebar { position: fixed; top: 0; left: 0; width: var(--sidebar); height: 100vh; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 20px 12px; z-index: 10; }
+.sidebar-logo { display: flex; align-items: center; gap: 10px; padding: 4px 8px 20px; }
+.sidebar-logo svg { color: var(--accent); }
+.sidebar-logo span { font-size: 16px; font-weight: 700; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; margin-bottom: 2px; user-select: none; }
+.nav-item:hover { background: var(--card); color: var(--text); }
+.nav-item.active { background: rgba(88,166,255,.15); color: var(--accent); }
+.nav-item svg { flex-shrink: 0; }
+.sidebar-spacer { flex: 1; }
+.sidebar-footer { padding: 8px; }
+.btn-logout { width: 100%; background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 8px; border-radius: 8px; font-size: 12px; }
+.btn-logout:hover { border-color: var(--red); color: var(--red); background: transparent; }
+
+.main { margin-left: var(--sidebar); padding: 28px 32px; overflow-y: auto; height: 100vh; }
+.page { display: none; }
+.page.active { display: block; }
+.page-title { font-size: 20px; font-weight: 700; margin-bottom: 24px; display: flex; align-items: center; gap: 10px; }
+.page-title small { font-size: 13px; font-weight: 400; color: var(--muted); }
+
+/* Cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+.card-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .4px; }
+.card-value { font-size: 28px; font-weight: 700; line-height: 1; }
+.card-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.c-green { color: var(--green); }
+.c-blue  { color: var(--accent); }
+.c-yellow{ color: var(--yellow); }
+.c-red   { color: var(--red); }
+.c-muted { color: var(--muted); }
+
+/* Table */
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.table-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.table-header h3 { font-size: 15px; font-weight: 600; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; padding: 10px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); background: var(--card); border-bottom: 1px solid var(--border); }
+td { padding: 12px 16px; border-bottom: 1px solid rgba(48,54,61,.5); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,.02); }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.badge-green  { background: rgba(63,185,80,.15);  color: var(--green); }
+.badge-red    { background: rgba(248,81,73,.15);   color: var(--red); }
+.badge-yellow { background: rgba(210,153,34,.15);  color: var(--yellow); }
+.badge-muted  { background: rgba(139,148,158,.12); color: var(--muted); }
+.badge-blue   { background: rgba(88,166,255,.15);  color: var(--accent); }
+.mono { font-family: ui-monospace, monospace; font-size: 12px; }
+
+/* Logs */
+.log-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+.log-toolbar input { max-width: 280px; }
+.log-status { font-size: 12px; color: var(--muted); }
+.log-box { background: #0a0c10; border: 1px solid var(--border); border-radius: var(--radius); height: 520px; overflow-y: auto; padding: 12px 16px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
+.log-line { padding: 1px 0; word-break: break-all; }
+.log-line.warn  { color: var(--yellow); }
+.log-line.error { color: var(--red); }
+.log-line.info  { color: var(--accent); }
+.log-line.conn  { color: var(--green); }
+.log-ts { color: #444d56; margin-right: 8px; }
+
+/* Push form */
+.push-form { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 560px; }
+.form-group { margin-bottom: 18px; }
+.form-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+.push-result { margin-top: 14px; padding: 12px 16px; border-radius: 8px; font-size: 13px; }
+.push-result.success { background: rgba(63,185,80,.12); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+.push-result.error   { background: rgba(248,81,73,.12);  color: var(--red);   border: 1px solid rgba(248,81,73,.3); }
+
+/* Modal */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(2px); }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; width: 420px; max-width: 95vw; }
+.modal h3 { font-size: 16px; margin-bottom: 20px; }
+.modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+.form-row { display: flex; gap: 10px; }
+.form-row .form-group { flex: 1; }
+
+/* Copy tooltip */
+.copy-btn { background: transparent; border: none; color: var(--muted); padding: 2px 6px; font-size: 11px; border-radius: 4px; }
+.copy-btn:hover { color: var(--accent); background: rgba(88,166,255,.1); }
+
+/* Refresh indicator */
+.refresh-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+
+/* Empty state */
+.empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty svg { margin-bottom: 12px; opacity: .4; }
+.empty p { font-size: 14px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar { width: 56px; padding: 12px 8px; }
+  .sidebar-logo span, .nav-item span { display: none; }
+  .nav-item { justify-content: center; }
+  .main { margin-left: 56px; padding: 16px; }
+  .cards { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="login-box">
+    <div style="font-size:36px;margin-bottom:12px">🛡</div>
+    <h1>SKYFLOW Admin</h1>
+    <p>Введите мастер-пароль сервера</p>
+    <input type="password" id="login-pass" placeholder="Мастер-пароль" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn-primary" onclick="doLogin()">Войти</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span>SKYFLOW</span>
+    </div>
+    <div class="nav-item active" data-page="overview" onclick="showPage('overview',this)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      <span>Обзор</span>
+    </div>
+    <div class="nav-item" data-page="licenses" onclick="showPage('licenses',this)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>Лицензии</span>
+    </div>
+    <div class="nav-item" data-page="devices" onclick="showPage('devices',this)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+      <span>Устройства</span>
+    </div>
+    <div class="nav-item" data-page="logs" onclick="showPage('logs',this)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span>Логи</span>
+    </div>
+    <div class="nav-item" data-page="push" onclick="showPage('push',this)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3z"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span>Уведомления</span>
+    </div>
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-footer">
+      <button class="btn-logout" onclick="doLogout()">Выйти</button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- Overview -->
+    <div class="page active" id="page-overview">
+      <div class="page-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Обзор
+        <small id="server-ip"></small>
+      </div>
+      <div class="cards" id="overview-cards">
+        <div class="card"><div class="card-label">Активных сейчас</div><div class="card-value c-green" id="ov-active">—</div><div class="card-sub">подключений</div></div>
+        <div class="card"><div class="card-label">Лицензий</div><div class="card-value c-blue" id="ov-subs">—</div><div class="card-sub" id="ov-subs-sub">активных</div></div>
+        <div class="card"><div class="card-label">Устройств</div><div class="card-value" id="ov-devices">—</div><div class="card-sub">зарегистрировано</div></div>
+        <div class="card"><div class="card-label">Трафик ↓</div><div class="card-value c-yellow" id="ov-down">—</div><div class="card-sub" id="ov-up">↑ —</div></div>
+        <div class="card"><div class="card-label">Аптайм</div><div class="card-value c-muted" id="ov-uptime">—</div><div class="card-sub" id="ov-nat">NAT</div></div>
+      </div>
+    </div>
+
+    <!-- Licenses -->
+    <div class="page" id="page-licenses">
+      <div class="page-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Лицензии
+      </div>
+      <div class="table-wrap">
+        <div class="table-header">
+          <h3>Все лицензии</h3>
+          <button class="btn-primary btn-sm" onclick="openCreateModal()">+ Создать</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th>Пароль</th><th>Устройство</th><th>Истекает</th>
+              <th>Трафик ↓/↑</th><th>VK Hash</th><th>Статус</th><th>Действия</th>
+            </tr></thead>
+            <tbody id="licenses-tbody">
+              <tr><td colspan="7" class="empty"><p>Загрузка...</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Devices -->
+    <div class="page" id="page-devices">
+      <div class="page-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+        Устройства
+      </div>
+      <div class="table-wrap">
+        <div class="table-header"><h3>Зарегистрированные устройства</h3></div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th>ID устройства</th><th>IP</th><th>Лицензия</th>
+              <th>Приложение</th><th>Последний визит</th><th>FCM</th><th>Действия</th>
+            </tr></thead>
+            <tbody id="devices-tbody">
+              <tr><td colspan="7" class="empty"><p>Загрузка...</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="page" id="page-logs">
+      <div class="page-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Серверные логи
+      </div>
+      <div class="log-toolbar">
+        <input type="text" id="log-filter" placeholder="Фильтр..." oninput="renderLogs()" style="max-width:280px">
+        <button class="btn-ghost btn-sm" id="btn-pause" onclick="toggleLogPause()">⏸ Пауза</button>
+        <button class="btn-ghost btn-sm" onclick="clearLogs()">🗑 Очистить</button>
+        <span class="log-status"><span class="refresh-dot"></span><span id="log-count">0 строк</span></span>
+      </div>
+      <div class="log-box" id="log-box"></div>
+    </div>
+
+    <!-- Push -->
+    <div class="page" id="page-push">
+      <div class="page-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3z"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Push-уведомления
+      </div>
+      <div class="push-form">
+        <div class="form-group">
+          <label>Получатель</label>
+          <select id="push-target">
+            <option value="all">Все устройства</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Заголовок</label>
+          <input type="text" id="push-title" placeholder="SKYFLOW VPN">
+        </div>
+        <div class="form-group">
+          <label>Сообщение</label>
+          <textarea id="push-body" rows="3" placeholder="Новая версия доступна, обновите приложение"></textarea>
+        </div>
+        <button class="btn-primary" onclick="sendPush()">📤 Отправить</button>
+        <div id="push-result"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Modal: Create License -->
+<div class="modal-overlay" id="modal-create" style="display:none">
+  <div class="modal">
+    <h3>🔑 Новая лицензия</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Дней</label>
+        <input type="number" id="new-days" value="30" min="1" max="365">
+      </div>
+      <div class="form-group">
+        <label>Порты (dtls,wg,tun)</label>
+        <input type="text" id="new-ports" value="56000,56001,9000">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>VK Hash (один или через запятую)</label>
+      <input type="text" id="new-vkhash" placeholder="abc123def456">
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('modal-create')">Отмена</button>
+      <button class="btn-primary" onclick="createLicense()">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Extend License -->
+<div class="modal-overlay" id="modal-extend" style="display:none">
+  <div class="modal">
+    <h3>📅 Продлить лицензию</h3>
+    <p style="color:var(--muted);margin-bottom:20px;font-size:13px">Пароль: <span class="mono" id="extend-pass-label"></span></p>
+    <div class="form-group">
+      <label>Добавить дней</label>
+      <input type="number" id="extend-days" value="30" min="1" max="365">
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('modal-extend')">Отмена</button>
+      <button class="btn-primary" onclick="doExtend()">Продлить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Created License Result -->
+<div class="modal-overlay" id="modal-result" style="display:none">
+  <div class="modal">
+    <h3>✅ Лицензия создана</h3>
+    <div class="form-group">
+      <label>Пароль</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="result-pass" readonly>
+        <button class="btn-ghost btn-sm copy-btn" onclick="copyField('result-pass')">Copy</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Быстрая ссылка (для QR-кода)</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="result-link" readonly>
+        <button class="btn-ghost btn-sm copy-btn" onclick="copyField('result-link')">Copy</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="closeModal('modal-result');loadLicenses()">Готово</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = window.location.origin;
+let token = localStorage.getItem('admin_token') || '';
+let logLines = [];
+let logPaused = false;
+let sseSource = null;
+
+// ── Auth ────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const pass = document.getElementById('login-pass').value;
+  if (!pass) return;
+  try {
+    const r = await fetch(`${BASE}/admin/api/auth`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password: pass})
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Ошибка');
+    token = data.token;
+    localStorage.setItem('admin_token', token);
+    showApp();
+  } catch(e) {
+    document.getElementById('login-error').textContent = e.message;
+  }
+}
+
+function doLogout() {
+  token = '';
+  localStorage.removeItem('admin_token');
+  if (sseSource) { sseSource.close(); sseSource = null; }
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-pass').value = '';
+  document.getElementById('login-error').textContent = '';
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(`${BASE}${path}`, opts);
+  if (r.status === 401) { doLogout(); throw new Error('Unauthorized'); }
+  return r;
+}
+
+// ── App init ─────────────────────────────────────────────────────────────────
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  showPage('overview');
+  loadOverview();
+  setInterval(loadOverview, 30000);
+  startLogStream();
+}
+
+if (token) { showApp(); }
+
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`page-${name}`).classList.add('active');
+  (el || document.querySelector(`[data-page="${name}"]`)).classList.add('active');
+
+  if (name === 'licenses') loadLicenses();
+  if (name === 'devices')  loadDevices();
+  if (name === 'push')     loadPushTargets();
+}
+
+// ── Overview ─────────────────────────────────────────────────────────────────
+async function loadOverview() {
+  try {
+    const r = await api('GET', '/admin/api/overview');
+    const d = await r.json();
+    document.getElementById('ov-active').textContent = d.active_conns;
+    document.getElementById('ov-subs').textContent = d.active_subs;
+    document.getElementById('ov-subs-sub').textContent = `из ${d.passwords} лицензий`;
+    document.getElementById('ov-devices').textContent = d.devices;
+    document.getElementById('ov-down').textContent = d.down_fmt;
+    document.getElementById('ov-up').textContent = `↑ ${d.up_fmt}`;
+    document.getElementById('ov-uptime').textContent = d.uptime;
+    document.getElementById('ov-nat').textContent = d.nat;
+    if (d.server_ip) document.getElementById('server-ip').textContent = `— ${d.server_ip}`;
+  } catch(e) {}
+}
+
+// ── Licenses ─────────────────────────────────────────────────────────────────
+async function loadLicenses() {
+  const tbody = document.getElementById('licenses-tbody');
+  try {
+    const r = await api('GET', '/admin/api/licenses');
+    const items = await r.json();
+    if (!items || items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><p>Нет лицензий. Создайте первую.</p></div></td></tr>`;
+      return;
+    }
+    items.sort((a,b) => b.expires_at - a.expires_at);
+    tbody.innerHTML = items.map(item => {
+      const expired = item.is_expired;
+      const deact = item.is_deactivated;
+      const status = deact ? `<span class="badge badge-red">Отключена</span>`
+                  : expired ? `<span class="badge badge-muted">Истекла</span>`
+                  : `<span class="badge badge-green">Активна</span>`;
+      const exp = item.expires_at ? formatDate(item.expires_at) : '—';
+      const daysLeft = item.expires_at ? daysRemaining(item.expires_at) : '';
+      const expCell = expired ? `<span class="c-red">${exp}</span>` : `${exp}<br><small class="c-muted">${daysLeft}</small>`;
+      const device = item.device_id ? `<span class="mono" title="${item.device_id}">${item.device_id.slice(0,10)}…</span><br><small class="c-muted">${item.device_ip||''} ${item.app_version||''}</small>` : `<span class="c-muted">—</span>`;
+      const traffic = `↓ ${item.down_fmt}<br><small class="c-muted">↑ ${item.up_fmt}</small>`;
+      const vkHash = item.vk_hash ? `<span class="mono">${item.vk_hash.slice(0,12)}…</span>` : '—';
+      const linkBtn = item.link ? `<button class="btn-ghost btn-sm copy-btn" onclick="copyText('${item.link}')">🔗 Ссылка</button>` : '';
+      const actDeact = deact
+        ? `<button class="btn-success btn-sm" onclick="updateLicense('${item.password}','activate')">▶ Вкл</button>`
+        : `<button class="btn-ghost btn-sm" onclick="updateLicense('${item.password}','deactivate')">⏸ Выкл</button>`;
+      return `<tr>
+        <td><span class="mono">${maskPass(item.password)}</span><br>${linkBtn}</td>
+        <td>${device}</td>
+        <td>${expCell}</td>
+        <td>${traffic}</td>
+        <td>${vkHash}</td>
+        <td>${status}</td>
+        <td><div class="actions">
+          <button class="btn-ghost btn-sm" onclick="openExtendModal('${item.password}')">📅 Продлить</button>
+          ${actDeact}
+          ${item.device_id ? `<button class="btn-ghost btn-sm" onclick="updateLicense('${item.password}','reset_device')">📱 Сброс</button>` : ''}
+          <button class="btn-danger btn-sm" onclick="deleteLicense('${item.password}')">🗑</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><p>Ошибка загрузки: ${e.message}</p></div></td></tr>`;
+  }
+}
+
+async function updateLicense(pass, action, days) {
+  try {
+    const body = {action};
+    if (days) body.days = days;
+    const r = await api('PATCH', `/admin/api/licenses/${pass}`, body);
+    if (!r.ok) { const d = await r.json(); alert(d.error); return; }
+    loadLicenses();
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteLicense(pass) {
+  if (!confirm(`Удалить лицензию ${maskPass(pass)}? Устройство будет отключено.`)) return;
+  try {
+    await api('DELETE', `/admin/api/licenses/${pass}`);
+    loadLicenses();
+  } catch(e) { alert(e.message); }
+}
+
+function openCreateModal() {
+  document.getElementById('modal-create').style.display = 'flex';
+}
+
+async function createLicense() {
+  const days = parseInt(document.getElementById('new-days').value);
+  const ports = document.getElementById('new-ports').value.trim();
+  const vkHash = document.getElementById('new-vkhash').value.trim();
+  if (!vkHash) { alert('Введите VK Hash'); return; }
+  try {
+    const r = await api('POST', '/admin/api/licenses', {days, ports, vk_hash: vkHash});
+    const d = await r.json();
+    if (!r.ok) { alert(d.error); return; }
+    closeModal('modal-create');
+    document.getElementById('result-pass').value = d.password;
+    document.getElementById('result-link').value = d.link || '(нет IP)';
+    document.getElementById('modal-result').style.display = 'flex';
+  } catch(e) { alert(e.message); }
+}
+
+let extendTarget = '';
+function openExtendModal(pass) {
+  extendTarget = pass;
+  document.getElementById('extend-pass-label').textContent = maskPass(pass);
+  document.getElementById('extend-days').value = 30;
+  document.getElementById('modal-extend').style.display = 'flex';
+}
+async function doExtend() {
+  const days = parseInt(document.getElementById('extend-days').value);
+  await updateLicense(extendTarget, 'extend', days);
+  closeModal('modal-extend');
+}
+
+// ── Devices ──────────────────────────────────────────────────────────────────
+async function loadDevices() {
+  const tbody = document.getElementById('devices-tbody');
+  try {
+    const r = await api('GET', '/admin/api/devices');
+    const items = await r.json();
+    if (!items || items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><p>Устройств нет. Они появятся после первого подключения.</p></div></td></tr>`;
+      return;
+    }
+    items.sort((a,b) => b.last_seen_at - a.last_seen_at);
+    tbody.innerHTML = items.map(dev => {
+      const lastSeen = dev.last_seen_at ? timeAgo(dev.last_seen_at) : 'никогда';
+      const fcm = dev.fcm_token ? `<span class="badge badge-green">✓ есть</span>` : `<span class="badge badge-muted">нет</span>`;
+      return `<tr>
+        <td><span class="mono" style="font-size:11px">${dev.device_id.slice(0,18)}…</span></td>
+        <td><span class="mono">${dev.ip || '—'}</span></td>
+        <td><span class="mono">${dev.password ? maskPass(dev.password) : '—'}</span></td>
+        <td>${dev.app_version || '—'}</td>
+        <td>${lastSeen}</td>
+        <td>${fcm}</td>
+        <td><div class="actions">
+          <button class="btn-danger btn-sm" onclick="deleteDevice('${dev.device_id}')">🗑 Удалить</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><p>Ошибка: ${e.message}</p></div></td></tr>`;
+  }
+}
+
+async function deleteDevice(id) {
+  if (!confirm('Удалить устройство? VPN соединение будет разорвано.')) return;
+  try {
+    await api('DELETE', `/admin/api/devices/${id}`);
+    loadDevices();
+  } catch(e) { alert(e.message); }
+}
+
+// ── Logs ─────────────────────────────────────────────────────────────────────
+function startLogStream() {
+  api('GET', '/admin/api/logs/recent').then(r => r.json()).then(lines => {
+    lines.forEach(l => addLogLine(l.text, l.ts));
+    connectSSE();
+  }).catch(() => connectSSE());
+}
+
+function connectSSE() {
+  if (sseSource) sseSource.close();
+  sseSource = new EventSource(`${BASE}/admin/api/logs/stream?token=${token}`);
+  sseSource.onmessage = e => {
+    const text = JSON.parse(e.data);
+    if (!logPaused) addLogLine(text);
+  };
+  sseSource.onerror = () => { setTimeout(connectSSE, 3000); };
+}
+
+function addLogLine(text, ts) {
+  logLines.push({text, ts: ts || Date.now()});
+  if (logLines.length > 1000) logLines.shift();
+  if (!logPaused) renderLogs();
+}
+
+function renderLogs() {
+  const filter = document.getElementById('log-filter').value.toLowerCase();
+  const box = document.getElementById('log-box');
+  const atBottom = box.scrollHeight - box.clientHeight - box.scrollTop < 60;
+  const filtered = filter ? logLines.filter(l => l.text.toLowerCase().includes(filter)) : logLines;
+  document.getElementById('log-count').textContent = `${filtered.length} строк`;
+  box.innerHTML = filtered.map(l => {
+    const cls = l.text.match(/\[ERROR\]|ОШИБКА|error|fatal/i) ? 'error'
+              : l.text.match(/\[WARN\]|WARNING/i) ? 'warn'
+              : l.text.match(/\[CONN\]|\[WG\]|\[DTLS\]/i) ? 'conn'
+              : l.text.match(/\[ADMIN\]|\[API\]|\[СТАТ\]/i) ? 'info'
+              : '';
+    const time = l.ts ? `<span class="log-ts">${new Date(l.ts).toLocaleTimeString()}</span>` : '';
+    return `<div class="log-line ${cls}">${time}${escHtml(l.text)}</div>`;
+  }).join('');
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+function toggleLogPause() {
+  logPaused = !logPaused;
+  document.getElementById('btn-pause').textContent = logPaused ? '▶ Продолжить' : '⏸ Пауза';
+}
+function clearLogs() { logLines = []; renderLogs(); }
+
+// ── Push ─────────────────────────────────────────────────────────────────────
+async function loadPushTargets() {
+  const sel = document.getElementById('push-target');
+  sel.innerHTML = '<option value="all">Все устройства</option>';
+  try {
+    const r = await api('GET', '/admin/api/devices');
+    const devs = await r.json();
+    devs.filter(d => d.fcm_token).forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.device_id;
+      opt.textContent = `${d.device_id.slice(0,16)}… (${d.app_version||'?'}) ${d.password ? '– '+maskPass(d.password) : ''}`;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function sendPush() {
+  const target = document.getElementById('push-target').value;
+  const title  = document.getElementById('push-title').value.trim();
+  const body   = document.getElementById('push-body').value.trim();
+  const res = document.getElementById('push-result');
+  if (!title || !body) { alert('Заполните заголовок и сообщение'); return; }
+  try {
+    const r = await api('POST', '/admin/api/push', {target, title, body});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    res.className = 'push-result success';
+    res.textContent = `✅ Отправлено: ${d.sent}/${d.total} устройств`;
+  } catch(e) {
+    res.className = 'push-result error';
+    res.textContent = `❌ ${e.message}`;
+  }
+}
+
+// ── SSE token passthrough ─────────────────────────────────────────────────────
+// Override SSE to include auth token in URL since EventSource doesn't support headers
+const origSSE = EventSource;
+function connectSSE() {
+  if (sseSource) sseSource.close();
+  const url = `${BASE}/admin/api/logs/stream`;
+  // Use token in header via a workaround: pass as query param, server reads it
+  sseSource = new EventSource(`${url}?auth=${encodeURIComponent(token)}`);
+  sseSource.onmessage = e => {
+    const text = JSON.parse(e.data);
+    addLogLine(text);
+  };
+  sseSource.onerror = () => { setTimeout(connectSSE, 4000); };
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function formatDate(ts) {
+  return new Date(ts * 1000).toLocaleDateString('ru', {day:'2-digit',month:'2-digit',year:'numeric'});
+}
+function daysRemaining(ts) {
+  const diff = ts - Math.floor(Date.now()/1000);
+  if (diff <= 0) return 'истекла';
+  const d = Math.floor(diff/86400);
+  return d === 0 ? 'сегодня' : `ещё ${d} дн.`;
+}
+function timeAgo(ts) {
+  const diff = Math.floor(Date.now()/1000) - ts;
+  if (diff < 60) return 'только что';
+  if (diff < 3600) return `${Math.floor(diff/60)} мин назад`;
+  if (diff < 86400) return `${Math.floor(diff/3600)} ч назад`;
+  return `${Math.floor(diff/86400)} дн назад`;
+}
+function maskPass(p) {
+  if (!p || p.length < 6) return p;
+  return p.slice(0,4) + '…' + p.slice(-3);
+}
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function copyField(id) { copyText(document.getElementById(id).value); }
+function copyText(text) {
+  navigator.clipboard.writeText(text).catch(() => {
+    const el = document.createElement('textarea');
+    el.value = text; document.body.appendChild(el);
+    el.select(); document.execCommand('copy');
+    document.body.removeChild(el);
+  });
+}
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if(e.target === m) m.style.display = 'none'; });
+});
+</script>
+</body>
+</html>

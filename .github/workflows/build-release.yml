@@ -139,7 +139,7 @@ jobs:
               -trimpath \
               -ldflags="-s -w -checklinkname=0" \
               -o build/server/wdtt-server-linux-amd64 \
-              ./server.go
+              .
 
           echo "== Build server linux/arm64 =="
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
@@ -147,7 +147,7 @@ jobs:
               -trimpath \
               -ldflags="-s -w -checklinkname=0" \
               -o build/server/wdtt-server-linux-arm64 \
-              ./server.go
+              .
 
           chmod +x build/server/wdtt-server-linux-amd64
           chmod +x build/server/wdtt-server-linux-arm64
