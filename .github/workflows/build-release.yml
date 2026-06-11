@@ -232,7 +232,7 @@ jobs:
           name: SKYFLOW-M-release-apk
           path: build/artifacts/apk/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload server binaries artifact
         uses: actions/upload-artifact@v6
@@ -240,7 +240,7 @@ jobs:
           name: SKYFLOW-M-server-binaries
           path: build/artifacts/server/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload Go client libraries artifact
         uses: actions/upload-artifact@v6
@@ -248,4 +248,4 @@ jobs:
           name: SKYFLOW-M-go-client-libraries
           path: build/artifacts/go-client/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
