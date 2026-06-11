@@ -46,7 +46,8 @@ import kotlin.random.Random
 
 object ManlCaptchaWebViewManager {
     private const val TAG = "ManlCaptchaWV"
-    private const val CAPTCHA_TIMEOUT_MS = 60_000L
+    // 3 minutes: auto-solve takes ~36 s, then user needs time to notice and tap manually.
+    private const val CAPTCHA_TIMEOUT_MS = 180_000L
 
     val captchaMutex = Mutex()
     val pendingResult = AtomicReference<CompletableDeferred<Result<String>>?>(null)

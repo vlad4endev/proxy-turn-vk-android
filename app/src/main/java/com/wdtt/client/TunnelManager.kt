@@ -126,6 +126,9 @@ object TunnelManager {
     private var refusedCount = 0
     private var currentHashErrorCount = 0
     private var wrapAuthTimeoutCount = 0
+    // Consecutive captcha failures: if VK keeps demanding captcha and we can't solve it,
+    // stop after 3 failures instead of looping forever.
+    private var consecutiveCaptchaErrors = 0
     var processStartedAtMs = 0L
     /** Момент, когда Go-клиент выдал WireGuard-конфиг и мы начали поднимать VPN. */
     var wireGuardExpectedAtMs = 0L
@@ -174,6 +177,7 @@ object TunnelManager {
 
     fun onCaptchaSolved() {
         _showCaptchaModal.value = false
+        consecutiveCaptchaErrors = 0
         updateLog("captcha_done", "[КАПЧА] Решена ✓", 5, false)
     }
 
@@ -201,13 +205,23 @@ object TunnelManager {
             try {
                 val token = ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
                 writeToProcessStdin("CAPTCHA_RESULT|$token")
+                consecutiveCaptchaErrors = 0
                 updateLog("captcha_done", "[КАПЧА] Решена ✓", 5, false)
             } catch (e: CancellationException) {
                 writeToProcessStdin("CAPTCHA_RESULT|error:cancelled")
             } catch (e: Exception) {
+                consecutiveCaptchaErrors++
                 val msg = e.message?.take(80)?.replace("|", "-") ?: "failed"
                 writeToProcessStdin("CAPTCHA_RESULT|error:$msg")
                 updateLog("captcha_failed", "[КАПЧА] Не решена: ${e.message?.take(40)}", 5, true)
+                // Stop infinite captcha loop: VK can keep demanding captcha on every reconnect.
+                // After 3 consecutive failures, surface a clear error instead of looping forever.
+                if (consecutiveCaptchaErrors >= 3) {
+                    handleCriticalError(
+                        "VK требует капчу снова и снова ($consecutiveCaptchaErrors раз). " +
+                        "Попробуйте позже или смените ссылку VK-звонка."
+                    )
+                }
             }
         }
     }
@@ -305,6 +319,7 @@ object TunnelManager {
             refusedCount = 0
             currentHashErrorCount = 0
             wrapAuthTimeoutCount = 0
+            consecutiveCaptchaErrors = 0
             processStartedAtMs = 0L
             wireGuardExpectedAtMs = 0L
             wireGuardStarted = false
@@ -1327,7 +1342,9 @@ object TunnelManager {
                     continue
                 }
 
-                if (System.currentTimeMillis() - zeroWorkersSince >= 60_000) {
+                // 150 s gives the Go client time to self-recover a dropped TURN session
+                // before we force a full restart (which triggers new VK auth + captcha).
+                if (System.currentTimeMillis() - zeroWorkersSince >= 150_000) {
                     restartClientSilently(context, params)
                     return@launch
                 }
