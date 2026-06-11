@@ -123,7 +123,7 @@ fun AppUpdateDialog(
 
                     Button(
                         onClick = {
-                            val apkUrl = "https://github.com/vlad4endev/proxy-turn-vk-android/releases/latest/download/app-release.apk"
+                            val apkUrl = "https://github.com/vlad4endev/skyflow-vpn-android/releases/latest/download/skyflow-m.apk"
                             val request = android.app.DownloadManager.Request(
                                 android.net.Uri.parse(apkUrl)
                             ).apply {

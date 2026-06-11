@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: read
+      contents: write
 
     env:
       # Node 20 EOL on Actions runners; opt into Node 24 for JS-based actions.
@@ -225,6 +225,34 @@ jobs:
 
           echo "== Final artifacts =="
           find build/artifacts -type f -exec ls -lh {} \;
+
+      - name: Read app version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep 'versionName' app/build.gradle.kts | grep -oP '"\K[^"]+')
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Version: v${VERSION}"
+
+      - name: Rename APK to skyflow-m.apk
+        shell: bash
+        run: |
+          APK=$(ls build/artifacts/apk/*.apk | head -1)
+          mv "$APK" build/artifacts/apk/skyflow-m.apk
+          echo "APK: $(ls -lh build/artifacts/apk/skyflow-m.apk)"
+
+      - name: Publish GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: SKYFLOW M ${{ steps.version.outputs.tag }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: build/artifacts/apk/skyflow-m.apk
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v6
