@@ -132,6 +132,13 @@ object TunnelManager {
     // Tracks the active captcha-solving coroutine so it can be cancelled on process restart,
     // preventing zombie coroutines from sending stale tokens to a new Go process.
     private var captchaJob: Job? = null
+    // True while the Go binary is internally solving captcha (RJS / WBV / AUTO steps).
+    // The watchdog pauses its zero-workers countdown whenever this is set, preventing a
+    // premature process restart that would interrupt an in-progress internal solve.
+    @Volatile private var goInternalCaptchaActive = false
+    // Timestamp of the last time captcha was fully solved (either by Go or Android WebView).
+    // Used to suppress repeated captcha attempts within a cooldown window.
+    @Volatile private var lastCaptchaSolvedMs = 0L
     var processStartedAtMs = 0L
     /** Момент, когда Go-клиент выдал WireGuard-конфиг и мы начали поднимать VPN. */
     var wireGuardExpectedAtMs = 0L
@@ -210,6 +217,8 @@ object TunnelManager {
                 val token = ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
                 writeToProcessStdin("CAPTCHA_RESULT|$token")
                 consecutiveCaptchaErrors = 0
+                goInternalCaptchaActive = false
+                lastCaptchaSolvedMs = System.currentTimeMillis()
                 updateLog("captcha_done", "[КАПЧА] Решена ✓", 5, false)
             } catch (e: CancellationException) {
                 writeToProcessStdin("CAPTCHA_RESULT|error:cancelled")
@@ -332,6 +341,7 @@ object TunnelManager {
             connectedSince.value = 0L
             lastActiveAtMs = 0L
             activeHashIndex = 0
+            goInternalCaptchaActive = false
             _showCaptchaModal.value = false
             currentParams = params
             lastContext = appContext
@@ -725,11 +735,14 @@ object TunnelManager {
                     }
                 }
 
-                // captchaMode "wv" = показывать пользователю WebView с реальной страницей капчи.
-                // Если не задано — используем "wv" по умолчанию (лучше чем "auto" который зависает).
+                // "auto" → Go binary tries RJS then WBV internally (~30–90 s) before asking
+                // Android for a WebView. "wv" = skip internal solving and go straight to WebView.
+                // "rjs" = only internal RJS (no fallback). Default is "auto" so the Go binary
+                // resolves captcha silently in the background without bothering the user.
                 val effectiveCaptchaMode = when (params.captchaMode) {
                     "rjs" -> "rjs"
-                    else -> "wv"
+                    "wv"  -> "wv"
+                    else  -> "auto"
                 }
 
                 val credsCacheFile = "${context.filesDir.absolutePath}/vk_creds_cache.json"
@@ -928,16 +941,23 @@ object TunnelManager {
                             var text = lineTrim.substringAfter("[КАПЧА] AUTO:").trim()
                             text = text.replace(Regex("\\s*\\([^)]+\\)\\s*"), " ").trim()
 
-                            val isErr = text.contains("ошибка", true) ||
+                            val isSolved = text.contains("решил") || text.contains("решила")
+                            val isErr = !isSolved && (text.contains("ошибка", true) ||
                                 text.contains("timeout", true) ||
-                                text.contains("не решил", true)
+                                text.contains("не решил", true))
+                            if (isSolved) {
+                                goInternalCaptchaActive = false
+                                lastCaptchaSolvedMs = System.currentTimeMillis()
+                            } else {
+                                goInternalCaptchaActive = true
+                            }
                             val stableKey = when {
                                 text.contains("старт") -> "captcha_auto_1"
                                 text.contains("Go v2") && text.contains("2 попыт") -> "captcha_auto_2"
                                 text.contains("WBV Auto попытка") -> "captcha_auto_3"
                                 text.contains("финальная") -> "captcha_auto_4"
                                 text.contains("ручной WebView") -> "captcha_auto_5"
-                                text.contains("решил") || text.contains("решила") -> "captcha_auto_done"
+                                isSolved -> "captcha_auto_done"
                                 else -> "captcha_auto_${text.take(18).hashCode()}"
                             }
                             updateLog(stableKey, "[КАПЧА AUTO] $text", 5, isErr)
@@ -946,14 +966,21 @@ object TunnelManager {
                         isVkCaptchaFlow() && lineTrim.contains("[КАПЧА] RJS:") -> {
                             var text = lineTrim.substringAfter("[КАПЧА] RJS:").trim()
                             text = text.replace(Regex("\\s*\\([^)]+\\)\\s*"), " ").trim()
-                            
+
+                            val isSolved = text.contains("решена")
+                            if (isSolved) {
+                                goInternalCaptchaActive = false
+                                lastCaptchaSolvedMs = System.currentTimeMillis()
+                            } else {
+                                goInternalCaptchaActive = true
+                            }
                             val stableKey = when {
                                 text.contains("Загрузка") || text.contains("fetch") -> "captcha_rjs_1"
                                 text.contains("PoW") -> "captcha_rjs_2"
                                 text.contains("осматривает") || text.contains("человек") -> "captcha_rjs_3"
                                 text.contains("captchaNotRobot") || text.contains("Отправка") -> "captcha_rjs_4"
                                 text.contains("endSession") -> "captcha_rjs_5"
-                                text.contains("решена") -> "captcha_rjs_6"
+                                isSolved -> "captcha_rjs_6"
                                 else -> "captcha_rjs_${text.take(15).hashCode()}"
                             }
                             updateLog(stableKey, "[КАПЧА RJS] $text", 5, false)
@@ -962,8 +989,9 @@ object TunnelManager {
                         isVkCaptchaFlow() && lineTrim.contains("[КАПЧА] WBV:") -> {
                             var text = lineTrim.substringAfter("[КАПЧА] WBV:").trim()
                             text = text.replace(Regex("\\s*\\([^)]+\\)\\s*"), " ").trim()
-                            
+
                             val isErr = text.contains("Ошибка")
+                            if (!isErr) goInternalCaptchaActive = true
                             val stableKey = when {
                                 text.contains("Запрос") -> "captcha_wv_step_2"
                                 text.contains("Токен") -> "captcha_wv_step_5"
@@ -1327,7 +1355,8 @@ object TunnelManager {
                 if (
                     _showCaptchaModal.value ||
                     ManlCaptchaWebViewManager.isCaptchaPending ||
-                    CaptchaWebViewActivityLauncher.isCaptchaPending
+                    CaptchaWebViewActivityLauncher.isCaptchaPending ||
+                    goInternalCaptchaActive  // Go binary is internally solving — don't interrupt
                 ) {
                     zeroWorkersSince = 0L
                     continue
@@ -1373,7 +1402,8 @@ object TunnelManager {
         // Without this, the watchdog sees lastActiveAtMs != 0 (from the previous session)
         // and fires after 60s even though the new process just started and may be solving captcha.
         lastActiveAtMs = 0L
-        // Clear stale captcha UI so the new process starts with a clean state.
+        // Clear stale captcha state so the new process starts clean.
+        goInternalCaptchaActive = false
         _showCaptchaModal.value = false
         ManlCaptchaWebViewManager.cancelCaptcha()
         CaptchaWebViewActivityLauncher.dismiss()
@@ -1414,6 +1444,7 @@ object TunnelManager {
         yandexAuthTimeoutJob?.cancel()
         captchaJob?.cancel()
         captchaJob = null
+        goInternalCaptchaActive = false
         val proc = process
         process = null
         if (proc != null) {
