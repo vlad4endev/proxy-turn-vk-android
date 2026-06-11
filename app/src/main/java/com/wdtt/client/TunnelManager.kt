@@ -129,6 +129,9 @@ object TunnelManager {
     // Consecutive captcha failures: if VK keeps demanding captcha and we can't solve it,
     // stop after 3 failures instead of looping forever.
     private var consecutiveCaptchaErrors = 0
+    // Tracks the active captcha-solving coroutine so it can be cancelled on process restart,
+    // preventing zombie coroutines from sending stale tokens to a new Go process.
+    private var captchaJob: Job? = null
     var processStartedAtMs = 0L
     /** Момент, когда Go-клиент выдал WireGuard-конфиг и мы начали поднимать VPN. */
     var wireGuardExpectedAtMs = 0L
@@ -201,7 +204,8 @@ object TunnelManager {
         connectionHint.value = "Подтвердите — Я не робот"
         updateLog("captcha_webview", "[КАПЧА] VK запросил проверку — реши вручную", 5, false)
 
-        scope.launch {
+        captchaJob?.cancel()
+        captchaJob = scope.launch {
             try {
                 val token = ManlCaptchaWebViewManager.solveCaptchaAsync(ctx, redirectUri, sessionToken)
                 writeToProcessStdin("CAPTCHA_RESULT|$token")
@@ -1365,6 +1369,14 @@ object TunnelManager {
         transportRestartInProgress = true
         logMessage?.let { updateLog("network_restart", it, 50, false) }
         activeWorkers.value = 0
+        // Reset lastActiveAtMs so the watchdog treats the new process as a fresh start.
+        // Without this, the watchdog sees lastActiveAtMs != 0 (from the previous session)
+        // and fires after 60s even though the new process just started and may be solving captcha.
+        lastActiveAtMs = 0L
+        // Clear stale captcha UI so the new process starts with a clean state.
+        _showCaptchaModal.value = false
+        ManlCaptchaWebViewManager.cancelCaptcha()
+        CaptchaWebViewActivityLauncher.dismiss()
         killProcess()
         scope.launch {
             delay(1500)
@@ -1400,6 +1412,8 @@ object TunnelManager {
         watchdogJob?.cancel()
         readerJob?.cancel()
         yandexAuthTimeoutJob?.cancel()
+        captchaJob?.cancel()
+        captchaJob = null
         val proc = process
         process = null
         if (proc != null) {
