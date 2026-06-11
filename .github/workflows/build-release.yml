@@ -226,13 +226,48 @@ jobs:
           echo "== Final artifacts =="
           find build/artifacts -type f -exec ls -lh {} \;
 
-      - name: Read app version
+      - name: Read app version and generate changelog
         id: version
         shell: bash
         run: |
           VERSION=$(grep 'versionName' app/build.gradle.kts | grep -oP '"\K[^"]+')
-          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Version: v${VERSION}"
+          TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Version: ${TAG}"
+
+          # Generate changelog from commits since last tag (or last 20 commits if no tag)
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            echo "Changelog since ${PREV_TAG}"
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"%s" --no-merges | grep -v '^ci:\|^chore:\|^build:' || true)
+          else
+            echo "No previous tag, using last 20 commits"
+            COMMITS=$(git log --pretty=format:"%s" --no-merges -20 | grep -v '^ci:\|^chore:\|^build:' || true)
+          fi
+
+          # Convert conventional commit prefixes to human-readable Russian
+          CHANGELOG=$(echo "$COMMITS" | sed \
+            -e 's/^feat(\([^)]*\)): /Добавлено: /g' \
+            -e 's/^feat: /Добавлено: /g' \
+            -e 's/^fix(\([^)]*\)): /Исправлено: /g' \
+            -e 's/^fix: /Исправлено: /g' \
+            -e 's/^perf(\([^)]*\)): /Улучшено: /g' \
+            -e 's/^perf: /Улучшено: /g' \
+            -e 's/^refactor(\([^)]*\)): //g' \
+            -e 's/^refactor: //g' \
+            | grep -v '^$' \
+            | sed 's/^/- /' \
+            | head -20)
+
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- Исправления и улучшения стабильности"
+          fi
+
+          echo "Changelog:"
+          echo "$CHANGELOG"
+
+          # Write to file (multiline safe)
+          echo "$CHANGELOG" > /tmp/release_notes.txt
 
       - name: Rename APK to skyflow-m.apk
         shell: bash
@@ -249,6 +284,7 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
+          body_path: /tmp/release_notes.txt
           files: build/artifacts/apk/skyflow-m.apk
           fail_on_unmatched_files: true
         env:

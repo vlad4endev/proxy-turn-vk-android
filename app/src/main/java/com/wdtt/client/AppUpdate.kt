@@ -34,7 +34,8 @@ fun updateIntervalHoursToMillis(hours: Int): Long? = when {
 data class AppReleaseInfo(
     val versionTag: String,
     val releaseUrl: String,
-    val source: RemoteVersionSource
+    val source: RemoteVersionSource,
+    val releaseNotes: String? = null
 )
 
 enum class RemoteVersionSource {
@@ -249,7 +250,8 @@ private fun JSONObject.toAppReleaseInfo(): AppReleaseInfo? {
     val versionTag = normalizeVersionTag(optString("tag_name"))
     val releaseUrl = optString("html_url").trim()
     if (versionTag.isBlank() || releaseUrl.isBlank()) return null
-    return AppReleaseInfo(versionTag, releaseUrl, RemoteVersionSource.Release)
+    val body = optString("body").trim().takeIf { it.isNotBlank() }
+    return AppReleaseInfo(versionTag, releaseUrl, RemoteVersionSource.Release, body)
 }
 
 private fun versionParts(version: String): List<Int> {
