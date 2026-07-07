@@ -1,7 +1,13 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.gms.google-services")
+}
+
+// Firebase/FCM опционален: плагин google-services требует google-services.json,
+// которого нет в репозитории. Применяем плагин только если файл присутствует.
+// Без файла сборка не падает, а push просто не активируется — на VPN не влияет.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
