@@ -5,6 +5,8 @@ import (
 	"os"
 
 	fhttp "github.com/bogdanfinn/fhttp"
+
+	"github.com/samosvalishe/free-turn-proxy/internal/randx"
 )
 
 type Profile struct {
@@ -12,6 +14,53 @@ type Profile struct {
 	SecChUa         string
 	SecChUaMobile   string
 	SecChUaPlatform string
+	// DeviceJSON — согласованный с этим профилем отпечаток устройства
+	// (screen/dpr/hardwareConcurrency/lang) для captchaNotRobot.componentDone.
+	// Пусто → вызывающий подставит статический fallback.
+	DeviceJSON string
+}
+
+// pool — набор ВЗАИМНО СОГЛАСОВАННЫХ desktop-профилей (UA ↔ sec-ch-ua версия ↔
+// platform ↔ device screen/dpr). Раньше на все стримы и всех пользователей шёл
+// один статичный отпечаток (Windows/Chrome-146/1920x1080) — «N одинаковых
+// браузеров с одного IP» само по себе бот-сигнал. Ротация по сессиям делает
+// каждый VK-логин похожим на отдельный реальный браузер. Все поля внутри одного
+// профиля когерентны, поэтому в худшем случае это нейтрально, не хуже статики.
+var pool = []Profile{
+	{
+		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+		SecChUa:         `"Not(A:Brand";v="99", "Google Chrome";v="146", "Chromium";v="146"`,
+		SecChUaMobile:   "?0",
+		SecChUaPlatform: `"Windows"`,
+		DeviceJSON:      `{"screenWidth":1920,"screenHeight":1080,"screenAvailWidth":1920,"screenAvailHeight":1040,"innerWidth":1920,"innerHeight":953,"devicePixelRatio":1,"language":"en-US","languages":["en-US","en"],"webdriver":false,"hardwareConcurrency":8,"notificationsPermission":"denied"}`,
+	},
+	{
+		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+		SecChUa:         `"Chromium";v="145", "Not(A:Brand";v="24", "Google Chrome";v="145"`,
+		SecChUaMobile:   "?0",
+		SecChUaPlatform: `"Windows"`,
+		DeviceJSON:      `{"screenWidth":1536,"screenHeight":864,"screenAvailWidth":1536,"screenAvailHeight":816,"innerWidth":1536,"innerHeight":739,"devicePixelRatio":1.25,"language":"en-US","languages":["en-US","en"],"webdriver":false,"hardwareConcurrency":12,"notificationsPermission":"denied"}`,
+	},
+	{
+		UserAgent:       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+		SecChUa:         `"Not(A:Brand";v="99", "Google Chrome";v="146", "Chromium";v="146"`,
+		SecChUaMobile:   "?0",
+		SecChUaPlatform: `"macOS"`,
+		DeviceJSON:      `{"screenWidth":1512,"screenHeight":982,"screenAvailWidth":1512,"screenAvailHeight":944,"innerWidth":1512,"innerHeight":855,"devicePixelRatio":2,"language":"en-US","languages":["en-US","en"],"webdriver":false,"hardwareConcurrency":8,"notificationsPermission":"denied"}`,
+	},
+	{
+		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
+		SecChUa:         `"Google Chrome";v="144", "Chromium";v="144", "Not(A:Brand";v="99"`,
+		SecChUaMobile:   "?0",
+		SecChUaPlatform: `"Windows"`,
+		DeviceJSON:      `{"screenWidth":2560,"screenHeight":1440,"screenAvailWidth":2560,"screenAvailHeight":1400,"innerWidth":2560,"innerHeight":1313,"devicePixelRatio":1,"language":"en-US","languages":["en-US","en"],"webdriver":false,"hardwareConcurrency":16,"notificationsPermission":"denied"}`,
+	},
+}
+
+// Random возвращает случайный согласованный профиль из пула. Все поля внутри
+// профиля когерентны между собой (UA/sec-ch-ua/platform/device).
+func Random() Profile {
+	return pool[randx.Intn(len(pool))]
 }
 
 type Saved struct {

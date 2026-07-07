@@ -462,7 +462,13 @@ func (s *captchaSession) solveCheckboxCaptcha(
 	hash string,
 	debugInfo string,
 ) (string, error) {
+	// Приоритет отпечатка устройства: захваченный реальный браузер (savedProfile,
+	// самый сильный) → согласованный с текущим профилем device из пула → статический
+	// fallback. Раньше здесь всегда шёл один статичный desktop-отпечаток.
 	deviceJSON := captchaDeviceInfo
+	if strings.TrimSpace(s.profile.DeviceJSON) != "" {
+		deviceJSON = s.profile.DeviceJSON
+	}
 	if s.savedProfile != nil && strings.TrimSpace(s.savedProfile.DeviceJSON) != "" {
 		deviceJSON = s.savedProfile.DeviceJSON
 	}
