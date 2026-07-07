@@ -27,6 +27,12 @@ class WireGuardHelper(context: Context) {
 
         const val SPEED_WG_PORT = 51820
 
+        // MTU интерфейса WireGuard. Ниже 1280, т.к. внутренний WG-пакет ещё раз
+        // оборачивается rtpopus (AEAD+RTP ~40Б) + TURN ChannelData + UDP/IP до
+        // выхода в реальную сеть; на LTE с path-MTU ~1400 прежние 1280 давали
+        // фрагментацию/потери на bulk-трафике («подключено, но не грузит»).
+        const val WG_MTU = 1240
+
         /**
          * Endpoint для скоростного режима: IP из [peer] (settingsStore.peer),
          * DTLS-порт отбрасывается, WG-порт всегда [SPEED_WG_PORT].
@@ -54,7 +60,7 @@ class WireGuardHelper(context: Context) {
         }
 
         /** Подставляет или заменяет MTU в секции [Interface] (TURN/DTLS накладные расходы). */
-        fun ensureWireGuardMtu(config: String, mtu: Int = 1280): String {
+        fun ensureWireGuardMtu(config: String, mtu: Int = WG_MTU): String {
             val mtuLine = "MTU = $mtu"
             val lines = config.lines().toMutableList()
             val interfaceIdx = lines.indexOfFirst { it.trim().equals("[Interface]", ignoreCase = true) }
@@ -108,16 +114,30 @@ class WireGuardHelper(context: Context) {
             val normalizedConfig = ensureWireGuardMtu(configString)
             val parsedConfig = Config.parse(ByteArrayInputStream(normalizedConfig.toByteArray(Charsets.UTF_8)))
 
+            // Адреса интерфейса. Полный туннель должен захватывать и IPv6, иначе
+            // на dual-stack сети v6-трафик либо утекает мимо VPN, либо повисает
+            // (v6-only цели). Добавляем локальный ULA v6-адрес, если конфиг его не
+            // несёт, чтобы вместе с ::/0 в AllowedIPs весь v6 шёл в туннель.
+            val addresses = parsedConfig.`interface`.addresses.map { it.toString() }.toMutableList()
+            if (addresses.none { it.contains(":") }) {
+                addresses.add("fd00::3/128")
+            }
             val builder = Interface.Builder()
-                .parseAddresses(parsedConfig.`interface`.addresses.joinToString(", ") { it.toString() })
-            
-            if (parsedConfig.`interface`.dnsServers.isNotEmpty()) {
-                builder.parseDnsServers(parsedConfig.`interface`.dnsServers.joinToString(", ") { it.hostAddress ?: "" })
+                .parseAddresses(addresses.joinToString(", "))
+
+            val dnsServers = parsedConfig.`interface`.dnsServers
+            if (dnsServers.isNotEmpty()) {
+                builder.parseDnsServers(dnsServers.joinToString(", ") { it.hostAddress ?: "" })
+            } else {
+                // Динамический конфиг без строки DNS + маршрут 0.0.0.0/0 в туннель
+                // = резолвинг уходит в туннель в никуда (DNS-чёрная дыра). Дефолтим
+                // на публичные резолверы, чтобы имена всегда резолвились.
+                builder.parseDnsServers("1.1.1.1, 8.8.8.8")
             }
             if (parsedConfig.`interface`.listenPort.isPresent) {
                 builder.parseListenPort(parsedConfig.`interface`.listenPort.get().toString())
             }
-            builder.parseMtu("1280")
+            builder.parseMtu(WG_MTU.toString())
             builder.parsePrivateKey(parsedConfig.`interface`.keyPair.privateKey.toBase64())
 
             // 1. Пакеты, которые всегда исключаются (наше приложение, ВК)
@@ -148,8 +168,9 @@ class WireGuardHelper(context: Context) {
                 if (peer.endpoint.isPresent) peerBuilder.parseEndpoint(peer.endpoint.get().toString())
                 if (peer.persistentKeepalive.isPresent) peerBuilder.parsePersistentKeepalive(peer.persistentKeepalive.get().toString())
             }
-            // Override AllowedIPs
-            peerBuilder.parseAllowedIPs("0.0.0.0/0")
+            // Override AllowedIPs — весь трафик в туннель, включая IPv6 (::/0),
+            // чтобы v6 не утекал мимо VPN и не повисал на dual-stack сетях.
+            peerBuilder.parseAllowedIPs("0.0.0.0/0, ::/0")
             
             val finalConfig = Config.Builder()
                 .setInterface(newInterface)

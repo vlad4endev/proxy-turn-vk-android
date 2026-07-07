@@ -118,6 +118,25 @@ func Run(ctx context.Context, dtlsDialer *dtlsdial.Dialer, auth AuthHandler, log
 	wg.Go(func() {
 		runListener(runCtx, listenConn, &activeLocalPeer, inboundChan)
 	})
+
+	// Периодически публикуем число активных стримов в формате, который уже
+	// парсит Android (TunnelManager: "[СТАТИСТИКА] Активных: N"). Без этой
+	// строки клиентский activeWorkers всегда 0 → whitelist-watchdog не
+	// армится, статистика/health инертны, а стадия «подключено» не
+	// подтверждается числом живых стримов. Аддитивно, без влияния на трафик.
+	wg.Go(func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				logger.Infof("[СТАТИСТИКА] Активных: %d", connectedStreams.Load())
+			}
+		}
+	})
+
 	t := time.Tick(200 * time.Millisecond)
 
 	// Стрим 1 стартует первым и сигналит okchan при первом успешном handshake.

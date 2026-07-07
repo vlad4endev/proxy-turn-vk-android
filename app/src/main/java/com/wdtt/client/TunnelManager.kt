@@ -92,6 +92,20 @@ object TunnelManager {
     private const val YANDEX_AUTH_TIMEOUT_MSG =
         "Не удалось подключиться к серверу Яндекс. Проверьте ссылку и попробуйте снова."
 
+    // Таймаут «зависшего старта» whitelist (VK): процесс жив, но за это время не
+    // появилось ни одного активного воркера и мы НЕ в капче — считаем старт
+    // проваленным вместо вечного «подключается». Копится только вне капчи.
+    private const val VK_AUTH_STUCK_TIMEOUT_MS = 90_000L
+    private const val VK_AUTH_STUCK_MSG =
+        "Не удалось авторизоваться и подключиться. Проверьте подписку и сеть, затем попробуйте снова."
+    // Предохранитель залипшего флага внутреннего решения капчи Go-клиентом:
+    // если goInternalCaptchaActive висит дольше (напр. Go упал, не напечатав
+    // «решена»), снимаем флаг, чтобы watchdog не стоял на паузе вечно.
+    private const val GO_CAPTCHA_MAX_MS = 150_000L
+    // Порог подряд идущих WRAP/DTLS-таймаутов, после которого прекращаем
+    // бесконечные попытки и показываем понятную ошибку.
+    private const val WRAP_AUTH_TIMEOUT_LIMIT = 8
+
     // ── ОБЩИЕ ────────────────────────────────────────────────────────────────
     private var readerJob: Job? = null
     private var watchdogJob: Job? = null
@@ -617,8 +631,29 @@ object TunnelManager {
         val startRx = safeRead(android.net.TrafficStats.getTotalRxBytes())
         val startTx = safeRead(android.net.TrafficStats.getTotalTxBytes())
         speedStatsJob = scope.launch {
+            var livenessTick = 0
             while (isActive) {
                 delay(1000)
+                // Watchdog SPEED-режима: отдельного сторожа у скоростного стека нет,
+                // а device-wide TrafficStats продолжает показывать «трафик» даже
+                // когда Xray/tun2socks умерли. Раз в 5с проверяем их живость, иначе
+                // стадия молча висит в VPN_READY без реального туннеля.
+                if (++livenessTick >= 5) {
+                    livenessTick = 0
+                    if (running.value && connectionStage.value == ConnectionStage.VPN_READY) {
+                        val xrayDead = xrayHelper?.isRunning() == false
+                        val t2sDead = tun2socksHelper?.isRunning() == false
+                        if (xrayDead || t2sDead) {
+                            val which = when {
+                                xrayDead && t2sDead -> "Xray и туннель"
+                                xrayDead -> "Xray"
+                                else -> "туннель"
+                            }
+                            handleCriticalError("Скоростной режим остановился ($which). Переподключитесь.")
+                            return@launch
+                        }
+                    }
+                }
                 val rx = safeRead(android.net.TrafficStats.getTotalRxBytes()) - startRx
                 val tx = safeRead(android.net.TrafficStats.getTotalTxBytes()) - startTx
                 // Format compatible with TunnelTab's LaunchedEffect(stats) parser:
@@ -849,6 +884,10 @@ object TunnelManager {
                                     50,
                                     true
                                 )
+                                if (wrapAuthTimeoutCount >= WRAP_AUTH_TIMEOUT_LIMIT) {
+                                    handleCriticalError("Не удаётся установить защищённое соединение — проверьте пароль подключения и сеть.")
+                                    return@forEachLine
+                                }
                             }
                             return@forEachLine
                         }
@@ -880,6 +919,10 @@ object TunnelManager {
                                     50,
                                     true
                             )
+                            if (wrapAuthTimeoutCount >= WRAP_AUTH_TIMEOUT_LIMIT) {
+                                handleCriticalError("Не удаётся установить защищённое соединение — проверьте пароль подключения и сеть.")
+                                return@forEachLine
+                            }
                         }
                         return@forEachLine
                     }
@@ -1272,7 +1315,15 @@ object TunnelManager {
                 updateLog("wg_started", "[VPN] WireGuard туннель запущен ✓", 2, false)
             } catch (e: Exception) {
                 wireGuardStarted = false
-                wireGuardExpectedAtMs = 0L
+                // НЕ обнуляем wireGuardExpectedAtMs: health-guard в TunnelService
+                // (wireGuardExpectedAtMs>0 && !isTunnelUp за 30с → аварийный стоп)
+                // должен остаться активным, иначе стадия залипнет в VPN_READY без
+                // трафика. wireGuardStarted=false позволяет повторную попытку по
+                // следующему "Established DTLS", а повтор обновит таймстамп.
+                if (connectionStage.value == ConnectionStage.VPN_READY) {
+                    connectionStage.value = ConnectionStage.SERVER_DTLS
+                }
+                connectionHint.value = "Ошибка запуска WireGuard, повтор…"
                 updateLog("vpn_start_error", "Ошибка запуска VPN: ${e.readableMessage()}", 99, true)
             }
         }
@@ -1326,6 +1377,8 @@ object TunnelManager {
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
             var zeroWorkersSince = 0L
+            var preWorkerStuckSince = 0L
+            var goCaptchaSince = 0L
             var wgCheckCounter = 0
             while (isActive && running.value) {
                 delay(5_000)  // Проверяем каждые 5 секунд
@@ -1352,23 +1405,52 @@ object TunnelManager {
                     return@launch
                 }
 
-                if (
-                    _showCaptchaModal.value ||
+                // Go-клиент решает капчу внутри себя — не прерываем. Но не ждём
+                // вечно: если флаг завис дольше GO_CAPTCHA_MAX_MS (Go мог упасть,
+                // не напечатав «решена»), снимаем его, чтобы watchdog продолжил.
+                if (goInternalCaptchaActive) {
+                    if (goCaptchaSince == 0L) {
+                        goCaptchaSince = System.currentTimeMillis()
+                    } else if (System.currentTimeMillis() - goCaptchaSince >= GO_CAPTCHA_MAX_MS) {
+                        goInternalCaptchaActive = false
+                        goCaptchaSince = 0L
+                        updateLog("go_captcha_stuck", "Внутреннее решение капчи затянулось — сбрасываю флаг", 50, true)
+                    }
+                } else {
+                    goCaptchaSince = 0L
+                }
+
+                val captchaPending = _showCaptchaModal.value ||
                     ManlCaptchaWebViewManager.isCaptchaPending ||
                     CaptchaWebViewActivityLauncher.isCaptchaPending ||
-                    goInternalCaptchaActive  // Go binary is internally solving — don't interrupt
-                ) {
+                    goInternalCaptchaActive
+                if (captchaPending) {
                     zeroWorkersSince = 0L
+                    preWorkerStuckSince = 0L
                     continue
                 }
 
                 if (activeWorkers.value > 0) {
                     zeroWorkersSince = 0L
+                    preWorkerStuckSince = 0L
                     continue
                 }
 
-                // До первых активных воркеров (VK/TURN/DTLS) нулевое значение нормально.
-                if (lastActiveAtMs == 0L) continue
+                // До первых активных воркеров (креды/DTLS). Капча уже отфильтрована
+                // выше. Раньше здесь был безусловный continue → застрявший на этом
+                // этапе VK-туннель висел вечно. Теперь копим «нет прогресса и не в
+                // капче» и после порога — понятный отказ вместо вечного «подключается».
+                if (lastActiveAtMs == 0L) {
+                    if (preWorkerStuckSince == 0L) {
+                        preWorkerStuckSince = System.currentTimeMillis()
+                        continue
+                    }
+                    if (System.currentTimeMillis() - preWorkerStuckSince >= VK_AUTH_STUCK_TIMEOUT_MS) {
+                        handleCriticalError(VK_AUTH_STUCK_MSG)
+                        return@launch
+                    }
+                    continue
+                }
 
                 if (zeroWorkersSince == 0L) {
                     zeroWorkersSince = System.currentTimeMillis()
