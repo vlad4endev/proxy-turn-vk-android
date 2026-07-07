@@ -149,9 +149,6 @@ fun TunnelTab() {
     var isStarting by remember { mutableStateOf(false) }
     var isCreatingLink by remember { mutableStateOf(false) }
     var autoLinkError by remember { mutableStateOf("") }
-    var linkCreatedAt by remember { mutableStateOf(store.getLinkCreatedAt()) }
-    val LINK_LIFETIME_SEC = 24 * 3600L
-    var linkRemainingSeconds by remember { mutableStateOf(0L) }
 
     var downMb by remember { mutableStateOf(0f) }
     var upMb by remember { mutableStateOf(0f) }
@@ -286,61 +283,14 @@ fun TunnelTab() {
         store.saveWdttLink(vkLink.trim())
     }
 
-    LaunchedEffect(vkLink) {
-        if (vkLink.isNotBlank() && linkCreatedAt == 0L) {
-            val now = System.currentTimeMillis() / 1000
-            linkCreatedAt = now
-            store.saveLinkCreatedAt(now)
-        }
-    }
-
-    LaunchedEffect(linkCreatedAt) {
-        if (linkCreatedAt == 0L) return@LaunchedEffect
-        while (true) {
-            val now = System.currentTimeMillis() / 1000
-            val elapsed = now - linkCreatedAt
-            linkRemainingSeconds = maxOf(0L, LINK_LIFETIME_SEC - elapsed)
-            if (linkRemainingSeconds <= 0L) break
-            delay(1000L)
-        }
-    }
-
-    val timerColor = when {
-        linkRemainingSeconds <= 0 -> SkyflowColors.ErrorColor
-        linkRemainingSeconds <= 3600 -> SkyflowColors.WarnColor
-        linkRemainingSeconds <= 6 * 3600 -> SkyflowColors.TextPrimary
-        else -> SkyflowColors.Connected
-    }
-    val timerBarColor = when {
-        linkRemainingSeconds <= 0 -> SkyflowColors.ErrorColor
-        linkRemainingSeconds <= 3600 -> SkyflowColors.WarnColor
-        linkRemainingSeconds <= 6 * 3600 -> SkyflowColors.Accent
-        else -> SkyflowColors.Connected
-    }
-    val timerPct = if (LINK_LIFETIME_SEC > 0)
-        (linkRemainingSeconds.toFloat() / LINK_LIFETIME_SEC).coerceIn(0f, 1f)
-    else 0f
-    val timerLabel = when {
-        linkRemainingSeconds <= 0 -> "Истекла"
-        linkRemainingSeconds <= 3600 -> "Истекает"
-        else -> "Действует"
-    }
-    val timerIcon = when {
-        linkRemainingSeconds <= 0 -> "❌"
-        linkRemainingSeconds <= 3600 -> "⚠"
-        else -> "⏱"
-    }
+    // Таймер действия ссылки убран (был косметический 24-часовой отсчёт).
     val autoBtnText = when {
         isCreatingLink -> "Создание..."
-        linkRemainingSeconds <= 0 && vkLink.isNotBlank() -> "Ссылка истекла · создать новую"
-        linkRemainingSeconds in 1..3600 && vkLink.isNotBlank() -> "Ссылка скоро истечёт · обновить"
         vkLink.isNotBlank() -> "Создана · обновить"
         else -> "⚡ Создать автоматически"
     }
     val autoBtnTextColor = when {
         isCreatingLink -> SkyflowColors.Accent
-        linkRemainingSeconds <= 0 && vkLink.isNotBlank() -> SkyflowColors.ErrorColor
-        linkRemainingSeconds in 1..3600 && vkLink.isNotBlank() -> SkyflowColors.WarnColor
         vkLink.isNotBlank() -> SkyflowColors.Connected
         else -> SkyflowColors.AccentLight
     }
@@ -853,13 +803,7 @@ fun TunnelTab() {
                     BasicTextField(
                         value = vkLink,
                         onValueChange = { newValue ->
-                            val trimmed = newValue.trim()
-                            vkLink = trimmed
-                            if (trimmed.isBlank()) {
-                                linkCreatedAt = 0L
-                                linkRemainingSeconds = 0L
-                                scope.launch { store.saveLinkCreatedAt(0L) }
-                            }
+                            vkLink = newValue.trim()
                         },
                         readOnly = tunnelRunning,
                         maxLines = 1,
@@ -889,57 +833,6 @@ fun TunnelTab() {
                                 }
                             }
                     )
-                    AnimatedVisibility(
-                        visible = vkLink.isNotBlank() && linkCreatedAt > 0L
-                    ) {
-                        Column {
-                            Spacer(Modifier.height(5.dp))
-                            HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
-                            Spacer(Modifier.height(5.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(timerIcon, fontSize = 10.sp)
-                                Text(
-                                    timerLabel,
-                                    fontSize = readableSp(12f),
-                                    color = if (linkRemainingSeconds <= 3600) timerColor
-                                    else SkyflowColors.TextSecondary
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(3.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(SkyflowColors.Border)
-                                ) {
-                                    val animatedPct by animateFloatAsState(
-                                        timerPct,
-                                        animationSpec = tween(500),
-                                        label = "timer_pct"
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxHeight()
-                                            .fillMaxWidth(animatedPct)
-                                            .clip(RoundedCornerShape(2.dp))
-                                            .background(timerBarColor)
-                                    )
-                                }
-                                Text(
-                                    text = if (linkRemainingSeconds > 0)
-                                        formatRemaining(linkRemainingSeconds)
-                                    else "00:00:00",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = timerColor
-                                )
-                            }
-                        }
-                    }
                     AnimatedVisibility(visible = !isConnected) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -963,9 +856,6 @@ fun TunnelTab() {
                                                     if (link != null) {
                                                         vkLink = link
                                                         autoLinkError = ""
-                                                        val now = System.currentTimeMillis() / 1000
-                                                        linkCreatedAt = now
-                                                        store.saveLinkCreatedAt(now)
                                                     } else {
                                                         autoLinkError = "Не удалось создать — вставьте вручную"
                                                     }
@@ -2041,13 +1931,6 @@ private fun parseVkHash(input: String): String {
     }
 
     return VkHashParser.parse(trimmed)
-}
-
-private fun formatRemaining(seconds: Long): String {
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
-    val s = seconds % 60
-    return "%02d:%02d:%02d".format(h, m, s)
 }
 
 private suspend fun createVkCallLink(): String? {

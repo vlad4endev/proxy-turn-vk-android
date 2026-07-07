@@ -40,8 +40,15 @@ import com.wdtt.client.TunnelManager
 import com.wdtt.client.ui.SkyflowColors
 import com.wdtt.client.ui.SkyflowShapes
 
-private const val CAPTCHA_PROXY_URL = "http://127.0.0.1:8765"
+// localhost (не 127.0.0.1), чтобы origin WebView совпадал с origin, который
+// использует инъекция Go-прокси (localhost:8765) — иначе fetch/worker капчи
+// уходят cross-origin и чекбокс не проходится.
+private const val CAPTCHA_PROXY_URL = "http://localhost:8765"
 private val CAPTCHA_RETRY_DELAYS_MS = longArrayOf(500L, 1_000L, 2_000L)
+
+// Максимум ожидания прохождения капчи в модалке. Если за это время не решена —
+// не морозим Go-солвер на 3 минуты, а сигналим TunnelManager (перезапуск/отказ).
+private const val CAPTCHA_MODAL_TIMEOUT_MS = 100_000L
 
 private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
@@ -121,6 +128,15 @@ fun CaptchaModal(
     var loadError by remember { mutableStateOf<String?>(null) }
     var retryAttempt by remember { mutableIntStateOf(0) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    // Анти-зависание: пока модалка видима, ведём таймер. Если капча не решена за
+    // CAPTCHA_MODAL_TIMEOUT_MS, сообщаем TunnelManager (он перезапустит транспорт
+    // или честно остановит с сообщением), вместо вечного зависания на Go-солвере.
+    LaunchedEffect(isVisible) {
+        if (!isVisible) return@LaunchedEffect
+        kotlinx.coroutines.delay(CAPTCHA_MODAL_TIMEOUT_MS)
+        TunnelManager.onCaptchaTimeout()
+    }
 
     fun scheduleRetry(errorDescription: String) {
         if (retryAttempt >= CAPTCHA_RETRY_DELAYS_MS.size) {
@@ -271,15 +287,22 @@ fun CaptchaModal(
                 )
 
                 // ── WebView area ──────────────────────────────────────────────
+                // Выше 300dp: чекбокс-капча VK не влезала и клик мог не попадать.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(300.dp)
+                        .height(460.dp)
                 ) {
                     AndroidView(
                         factory = { ctx ->
                             WebView(ctx).apply {
                                 webViewRef = this
+                                // Cookies обязательны для VK-капчи (сессия/CSRF для
+                                // captchaNotRobot.check). По умолчанию сторонние
+                                // cookies в WebView выключены — включаем явно.
+                                val cookieManager = android.webkit.CookieManager.getInstance()
+                                cookieManager.setAcceptCookie(true)
+                                cookieManager.setAcceptThirdPartyCookies(this, true)
                                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,

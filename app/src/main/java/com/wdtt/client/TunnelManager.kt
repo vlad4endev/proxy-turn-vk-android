@@ -143,6 +143,8 @@ object TunnelManager {
     // Consecutive captcha failures: if VK keeps demanding captcha and we can't solve it,
     // stop after 3 failures instead of looping forever.
     private var consecutiveCaptchaErrors = 0
+    // Сколько раз подряд модалка капчи истекла по таймауту (анти-зависание).
+    private var captchaTimeoutCount = 0
     // Tracks the active captcha-solving coroutine so it can be cancelled on process restart,
     // preventing zombie coroutines from sending stale tokens to a new Go process.
     private var captchaJob: Job? = null
@@ -202,7 +204,34 @@ object TunnelManager {
     fun onCaptchaSolved() {
         _showCaptchaModal.value = false
         consecutiveCaptchaErrors = 0
+        captchaTimeoutCount = 0
         updateLog("captcha_done", "[КАПЧА] Решена ✓", 5, false)
+    }
+
+    /**
+     * Вызывается модалкой капчи, когда проверку не удалось пройти за отведённое
+     * время. Вместо вечного зависания на Go-солвере (блок до 3 мин) закрываем
+     * модалку и либо перезапускаем транспорт (свежая попытка — авто-решатель
+     * может пройти без капчи), либо, после нескольких неудач, честно
+     * останавливаемся с понятным сообщением.
+     */
+    fun onCaptchaTimeout() {
+        _showCaptchaModal.value = false
+        goInternalCaptchaActive = false
+        captchaTimeoutCount++
+        val ctx = lastContext
+        val params = currentParams
+        if (captchaTimeoutCount <= 2 && ctx != null && params != null && running.value) {
+            updateLog(
+                "captcha_timeout",
+                "[КАПЧА] Проверку пройти не удалось — пробуем заново ($captchaTimeoutCount/2)",
+                50,
+                true
+            )
+            scheduleTransportRestart(ctx, params)
+        } else {
+            handleCriticalError("Не удалось пройти проверку VK. Попробуйте подключиться снова.")
+        }
     }
 
     // ── Запись в stdin Go-процесса (для CAPTCHA_RESULT) ──────────────────────
@@ -347,6 +376,7 @@ object TunnelManager {
             currentHashErrorCount = 0
             wrapAuthTimeoutCount = 0
             consecutiveCaptchaErrors = 0
+            captchaTimeoutCount = 0
             processStartedAtMs = 0L
             wireGuardExpectedAtMs = 0L
             wireGuardStarted = false

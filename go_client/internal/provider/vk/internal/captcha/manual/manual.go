@@ -465,6 +465,25 @@ func rewriteCaptchaHTML(html string, targetURL *neturl.URL) string {
         };
     }
 
+    // Web Worker: VK Smart Captcha гоняет PoW «Я не робот» в воркере с абсолютным
+    // VK/CDN-URL. Из localhost-origin new Worker('https://vk…') кидает cross-origin
+    // SecurityError, и чекбокс висит вечно. Переписываем URL воркера через прокси
+    // (same-origin). Обёрнуто в try/catch — на страницах без воркеров инертно.
+    try {
+        if (window.Worker) {
+            var OrigWorker = window.Worker;
+            var PatchedWorker = function(url, opts) {
+                try {
+                    if (typeof url === 'string') url = rewriteUrl(url);
+                    else if (url && typeof url.href === 'string') url = rewriteUrl(url.href);
+                } catch (e) {}
+                return new OrigWorker(url, opts);
+            };
+            PatchedWorker.prototype = OrigWorker.prototype;
+            window.Worker = PatchedWorker;
+        }
+    } catch (e) {}
+
     rewriteDocument(document);
     if (document.documentElement && window.MutationObserver) {
         new MutationObserver(function(mutations) {
