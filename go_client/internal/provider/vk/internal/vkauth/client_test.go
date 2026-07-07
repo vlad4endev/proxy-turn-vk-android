@@ -53,7 +53,7 @@ func TestIsAuthError(t *testing.T) {
 func TestStoreCacheGrouping(t *testing.T) {
 	t.Parallel()
 
-	s := NewStore(10)
+	s := NewStore(10, "")
 	if s.CacheID(0) != 0 || s.CacheID(9) != 0 || s.CacheID(10) != 1 {
 		t.Fatalf("unexpected cache grouping: 0→%d 9→%d 10→%d", s.CacheID(0), s.CacheID(9), s.CacheID(10))
 	}

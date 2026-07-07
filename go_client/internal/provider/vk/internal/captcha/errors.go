@@ -20,7 +20,12 @@ type Error struct {
 }
 
 // ParseError извлекает captcha-challenge из payload ошибки VK API.
-// Возвращает nil, если обязательные поля отсутствуют.
+// Возвращает nil только если отсутствует error_code — все остальные поля
+// опциональны. VK Smart Captcha (not_robot_captcha) присылает лишь
+// redirect_uri + session_token без legacy-полей captcha_sid/captcha_img,
+// поэтому их отсутствие не должно отбраковывать challenge. Actionability
+// challenge определяет метод IsCaptcha (error_code 14 + redirect_uri +
+// session_token), а не наличие legacy-полей.
 func ParseError(errData map[string]any) *Error {
 	codeFloat, ok := errData["error_code"].(float64)
 	if !ok {
@@ -29,33 +34,21 @@ func ParseError(errData map[string]any) *Error {
 	}
 	code := int(codeFloat)
 
-	redirectURI, ok := errData["redirect_uri"].(string)
-	if !ok {
-		Log.Warnf("[Captcha] missing redirect_uri in error data")
-		return nil
-	}
+	// redirect_uri — опционально (present в новом not_robot-флоу).
+	redirectURI, _ := errData["redirect_uri"].(string)
 
+	// captcha_sid / captcha_img — legacy-поля старой image-captcha,
+	// в новом Smart Captcha их нет. Извлекаем best-effort, не отбраковывая.
 	captchaSid, ok := errData["captcha_sid"].(string)
 	if !ok {
 		if sidNum, ok2 := errData["captcha_sid"].(float64); ok2 {
 			captchaSid = fmt.Sprintf("%.0f", sidNum)
-		} else {
-			Log.Warnf("[Captcha] missing captcha_sid in error data")
-			return nil
 		}
 	}
 
-	captchaImg, ok := errData["captcha_img"].(string)
-	if !ok {
-		Log.Warnf("[Captcha] missing captcha_img in error data")
-		return nil
-	}
+	captchaImg, _ := errData["captcha_img"].(string)
 
-	errorMsg, ok := errData["error_msg"].(string)
-	if !ok {
-		Log.Warnf("[Captcha] missing error_msg in error data")
-		return nil
-	}
+	errorMsg, _ := errData["error_msg"].(string)
 
 	var sessionToken string
 	if redirectURI != "" {
