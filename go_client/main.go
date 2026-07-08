@@ -304,6 +304,14 @@ func clientConfigPaths() []string {
 		add(filepath.Dir(exe))
 	}
 	add(filepath.Dir(os.Args[0]))
+	// Текущий рабочий каталог. На Android процесс запускается с writable CWD
+	// (app filesDir, см. TunnelManager ProcessBuilder.directory), тогда как
+	// каталог бинаря (/data/app/.../lib/arm64) и TempDir (/data/local/tmp)
+	// read-only. Без этого кандидата client_id не сохраняется и ротируется на
+	// каждый запуск — новое "устройство" для VK на каждом старте.
+	if wd, err := os.Getwd(); err == nil {
+		add(wd)
+	}
 	if cfgDir, err := os.UserConfigDir(); err == nil {
 		add(filepath.Join(cfgDir, "free-turn-proxy"))
 	}

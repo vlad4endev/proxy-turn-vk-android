@@ -58,8 +58,8 @@ object SkyflowColors {
         if (dark) Color(0xFF3D3D5C) else Color(0xFF9090B8)  // darker accent border
 
     val BorderGlow get() =
-        if (dark) Color(0xFF6366F1).copy(alpha = 0.35f)
-        else Color(0xFF6366F1).copy(alpha = 0.20f)
+        if (dark) Color(0xFF7C3AED).copy(alpha = 0.35f)
+        else Color(0xFF7C3AED).copy(alpha = 0.20f)
 
     // ── Accent ────────────────────────────────────────────────────────────
     val Accent      = Color(0xFF7C3AED)           // одинаково в обеих темах
@@ -133,8 +133,9 @@ object SkyflowColors {
 }
 
 object SkyflowGradients {
+    // Тот же градиент, что и в макете: violet → violet-deep (#5B21B6).
     val Accent get() = Brush.linearGradient(
-        colors = listOf(SkyflowColors.Accent, Color(0xFF6366F1))
+        colors = listOf(SkyflowColors.Accent, Color(0xFF5B21B6))
     )
     val Connected get() = Brush.linearGradient(
         colors = listOf(Color(0xFF34D399), Color(0xFF06B6D4))
@@ -262,6 +263,17 @@ val interFontFamily = FontFamily(
     Font(googleFont = interGoogleFont, fontProvider = googleFontProvider, weight = FontWeight.Medium),
     Font(googleFont = interGoogleFont, fontProvider = googleFontProvider, weight = FontWeight.SemiBold),
     Font(googleFont = interGoogleFont, fontProvider = googleFontProvider, weight = FontWeight.Bold),
+)
+
+// Вторая гарнитура из макета (display: "Space Grotesk", body: "Inter") — для
+// крупных чисел и заголовков (статус подключения, счётчик дней подписки),
+// как задумано в редизайне. Тело текста остаётся на Inter.
+private val spaceGroteskGoogleFont = GoogleFont("Space Grotesk")
+
+val displayFontFamily = FontFamily(
+    Font(googleFont = spaceGroteskGoogleFont, fontProvider = googleFontProvider, weight = FontWeight.Medium),
+    Font(googleFont = spaceGroteskGoogleFont, fontProvider = googleFontProvider, weight = FontWeight.SemiBold),
+    Font(googleFont = spaceGroteskGoogleFont, fontProvider = googleFontProvider, weight = FontWeight.Bold),
 )
 
 object SkyflowTextStyles {

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -24,6 +25,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -40,8 +42,21 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -102,7 +117,7 @@ private val Peer = "${ServerConfig.HOST}:${ServerConfig.PORT}"
 
 private data class ServiceStatus(
     val name: String,
-    val emoji: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val iconBg: Color,
     val host: String,
     val pingMs: Int = -1,
@@ -112,7 +127,7 @@ enum class LinkStatus { IDLE, CHECKING, ACTIVE, DEAD, NO_NETWORK }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TunnelTab() {
+fun TunnelTab(onOpenSettings: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { SettingsStore(context) }
@@ -149,9 +164,6 @@ fun TunnelTab() {
     var isStarting by remember { mutableStateOf(false) }
     var isCreatingLink by remember { mutableStateOf(false) }
     var autoLinkError by remember { mutableStateOf("") }
-    var linkCreatedAt by remember { mutableStateOf(store.getLinkCreatedAt()) }
-    val LINK_LIFETIME_SEC = 24 * 3600L
-    var linkRemainingSeconds by remember { mutableStateOf(0L) }
 
     var downMb by remember { mutableStateOf(0f) }
     var upMb by remember { mutableStateOf(0f) }
@@ -167,34 +179,52 @@ fun TunnelTab() {
     var modesExpanded by rememberSaveable { mutableStateOf(false) }
     var services by remember {
         mutableStateOf(listOf(
-            ServiceStatus("YouTube",   "▶", SkyflowColors.SurfaceHigh, "youtube.com"),
-            ServiceStatus("Telegram",  "✈", SkyflowColors.SurfaceHigh, "t.me"),
-            ServiceStatus("Instagram", "📷", SkyflowColors.SurfaceHigh, "instagram.com"),
-            ServiceStatus("WhatsApp",  "💬", SkyflowColors.SurfaceHigh, "whatsapp.com"),
-            ServiceStatus("TikTok",    "🎵", SkyflowColors.SurfaceHigh, "tiktok.com"),
+            ServiceStatus("YouTube",   Icons.Filled.PlayArrow,   SkyflowColors.SurfaceHigh, "youtube.com"),
+            ServiceStatus("Telegram",  Icons.Filled.Send,        SkyflowColors.SurfaceHigh, "t.me"),
+            ServiceStatus("Instagram", Icons.Filled.PhotoCamera, SkyflowColors.SurfaceHigh, "instagram.com"),
+            ServiceStatus("WhatsApp",  Icons.Filled.Chat,        SkyflowColors.SurfaceHigh, "whatsapp.com"),
+            ServiceStatus("TikTok",    Icons.Filled.MusicNote,   SkyflowColors.SurfaceHigh, "tiktok.com"),
         ))
     }
     var linkProvider by remember { mutableStateOf(LinkProvider.UNKNOWN) }
     var linkStatus by remember { mutableStateOf(LinkStatus.IDLE) }
     var showServersScreen by rememberSaveable { mutableStateOf(false) }
+    var showSubscription by rememberSaveable { mutableStateOf(false) }
     val activeSpeedServer by TunnelManager.activeSpeedServer.collectAsStateWithLifecycle()
 
     // ── Subscription / VLESS gate ─────────────────────────────────────────────
     val isSubMode = remember { store.getVlessInputMode() == "subscription" }
     var subExpireAt  by remember { mutableLongStateOf(store.getSubExpireAt()) }
     var hasServers   by remember { mutableStateOf(store.loadServers().isNotEmpty()) }
+    var trialStartAt by remember { mutableLongStateOf(store.getTrialStartAt()) }
     val isSubExpired by remember {
         derivedStateOf {
             subExpireAt > 0L && subExpireAt < System.currentTimeMillis() / 1000L
         }
     }
+    // Доступ: платная подписка (subExpireAt) ИЛИ локальный пробный период (trialStartAt).
+    val isPaidActive by remember { derivedStateOf { subExpireAt > System.currentTimeMillis() / 1000L } }
+    val trialDaysLeft by remember {
+        derivedStateOf {
+            val now = System.currentTimeMillis() / 1000L
+            val end = trialStartAt + com.wdtt.client.BillingConfig.TRIAL_DAYS * 86_400L
+            if (trialStartAt > 0L && end > now) (((end - now) + 86_399L) / 86_400L).toInt() else 0
+        }
+    }
+    val isTrialActive by remember { derivedStateOf { !isPaidActive && trialDaysLeft > 0 } }
+    val accessExpired by remember { derivedStateOf { !isPaidActive && !isTrialActive } }
+    // «Скорость» = VLESS: нужны серверы и не истёкшая подписка.
+    val speedAvailable by remember { derivedStateOf { hasServers && !isSubExpired } }
+    // «Маскировка» (VK→TURN→WG) работает при любом активном доступе — VLESS не нужен.
+    val maskingAvailable by remember { derivedStateOf { !accessExpired } }
     val isVlessBlocked by remember { derivedStateOf { !hasServers || isSubExpired } }
     // Re-read every 30s — auto-unlocks after payment + subscription refresh
     LaunchedEffect(Unit) {
         while (true) {
             delay(30_000L)
-            subExpireAt = store.getSubExpireAt()
-            hasServers  = store.loadServers().isNotEmpty()
+            subExpireAt  = store.getSubExpireAt()
+            hasServers   = store.loadServers().isNotEmpty()
+            trialStartAt = store.getTrialStartAt()
         }
     }
 
@@ -241,8 +271,8 @@ fun TunnelTab() {
     }
     val vkHash = remember(vkLink) { parseVkHash(vkLink) }
     val powerEnabled = tunnelRunning || isStarting ||
-        (!isVlessBlocked && isSpeedMode) ||
-        (!isVlessBlocked && vkLink.isNotBlank() && vkHash.isNotBlank())
+        (isSpeedMode && speedAvailable) ||
+        (!isSpeedMode && maskingAvailable && vkLink.isNotBlank() && vkHash.isNotBlank())
 
     LaunchedEffect(tunnelRunning, activeWorkers, connectionStage, isSpeedMode) {
         when {
@@ -286,61 +316,14 @@ fun TunnelTab() {
         store.saveWdttLink(vkLink.trim())
     }
 
-    LaunchedEffect(vkLink) {
-        if (vkLink.isNotBlank() && linkCreatedAt == 0L) {
-            val now = System.currentTimeMillis() / 1000
-            linkCreatedAt = now
-            store.saveLinkCreatedAt(now)
-        }
-    }
-
-    LaunchedEffect(linkCreatedAt) {
-        if (linkCreatedAt == 0L) return@LaunchedEffect
-        while (true) {
-            val now = System.currentTimeMillis() / 1000
-            val elapsed = now - linkCreatedAt
-            linkRemainingSeconds = maxOf(0L, LINK_LIFETIME_SEC - elapsed)
-            if (linkRemainingSeconds <= 0L) break
-            delay(1000L)
-        }
-    }
-
-    val timerColor = when {
-        linkRemainingSeconds <= 0 -> SkyflowColors.ErrorColor
-        linkRemainingSeconds <= 3600 -> SkyflowColors.WarnColor
-        linkRemainingSeconds <= 6 * 3600 -> SkyflowColors.TextPrimary
-        else -> SkyflowColors.Connected
-    }
-    val timerBarColor = when {
-        linkRemainingSeconds <= 0 -> SkyflowColors.ErrorColor
-        linkRemainingSeconds <= 3600 -> SkyflowColors.WarnColor
-        linkRemainingSeconds <= 6 * 3600 -> SkyflowColors.Accent
-        else -> SkyflowColors.Connected
-    }
-    val timerPct = if (LINK_LIFETIME_SEC > 0)
-        (linkRemainingSeconds.toFloat() / LINK_LIFETIME_SEC).coerceIn(0f, 1f)
-    else 0f
-    val timerLabel = when {
-        linkRemainingSeconds <= 0 -> "Истекла"
-        linkRemainingSeconds <= 3600 -> "Истекает"
-        else -> "Действует"
-    }
-    val timerIcon = when {
-        linkRemainingSeconds <= 0 -> "❌"
-        linkRemainingSeconds <= 3600 -> "⚠"
-        else -> "⏱"
-    }
+    // Таймер действия ссылки убран (был косметический 24-часовой отсчёт).
     val autoBtnText = when {
         isCreatingLink -> "Создание..."
-        linkRemainingSeconds <= 0 && vkLink.isNotBlank() -> "Ссылка истекла · создать новую"
-        linkRemainingSeconds in 1..3600 && vkLink.isNotBlank() -> "Ссылка скоро истечёт · обновить"
         vkLink.isNotBlank() -> "Создана · обновить"
-        else -> "⚡ Создать автоматически"
+        else -> "Создать автоматически"
     }
     val autoBtnTextColor = when {
         isCreatingLink -> SkyflowColors.Accent
-        linkRemainingSeconds <= 0 && vkLink.isNotBlank() -> SkyflowColors.ErrorColor
-        linkRemainingSeconds in 1..3600 && vkLink.isNotBlank() -> SkyflowColors.WarnColor
         vkLink.isNotBlank() -> SkyflowColors.Connected
         else -> SkyflowColors.AccentLight
     }
@@ -446,14 +429,11 @@ fun TunnelTab() {
     }
 
     val onPowerClick: () -> Unit = {
-        if (isVlessBlocked && !tunnelRunning && !isStarting) {
-            if (isSubExpired) {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            }
-            // else: no servers — do nothing, banner with navigation is already visible
+        if (!tunnelRunning && !isStarting && isSpeedMode && !speedAvailable) {
+            // «Скорость» требует подписку/серверы — открываем экран подписки (ссылка/ID/покупка).
+            showSubscription = true
+        } else if (!tunnelRunning && !isStarting && !isSpeedMode && accessExpired) {
+            showSubscription = true
         } else if (tunnelRunning || isStarting) {
             isStarting = false
             disconnectTunnel(context)
@@ -506,6 +486,8 @@ fun TunnelTab() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(if (metrics.isCompactHeight) 14.dp else 20.dp)
     ) {
+        BrandTopBar(onOpenSettings = onOpenSettings)
+
         if (!metrics.isVerySmall) {
             Spacer(Modifier.height(if (metrics.isCompactHeight) 4.dp else 12.dp))
         }
@@ -565,9 +547,52 @@ fun TunnelTab() {
             hint = connectionHint,
         )
 
+        // ── Живой прогресс подключения (только маскировка) ────────────────
+        AnimatedVisibility(
+            visible = isConnecting && !isSpeedMode,
+            enter   = fadeIn(tween(200)) + expandVertically(tween(200)),
+            exit    = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+        ) {
+            ConnectingStageChips(stage = connectionStage, activeWorkers = activeWorkers)
+        }
+
+        // ── Статус пробного периода ───────────────────────────────────────
+        AnimatedVisibility(
+            visible = isTrialActive && !tunnelRunning && !isStarting,
+            enter   = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit    = fadeOut(tween(200)) + shrinkVertically(tween(200))
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = SkyflowShapes.Chip,
+                color    = SkyflowColors.AccentMuted,
+                border   = BorderStroke(0.5.dp, SkyflowColors.Accent.copy(alpha = 0.3f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Пробный период · осталось $trialDaysLeft дн.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SkyflowColors.TextPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "Оформить",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = SkyflowColors.AccentLight,
+                        modifier = Modifier.clickable { showSubscription = true }
+                    )
+                }
+            }
+        }
+
         // ── VLESS / subscription gate banner ──────────────────────────────
         AnimatedVisibility(
-            visible = isVlessBlocked && !tunnelRunning && !isStarting,
+            visible = !tunnelRunning && !isStarting && ((isSpeedMode && !speedAvailable) || accessExpired),
             enter   = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit    = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
@@ -588,24 +613,29 @@ fun TunnelTab() {
                         verticalAlignment     = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(if (isSubExpired) "⛔" else "🔒", fontSize = 18.sp)
+                        Icon(
+                            if (accessExpired) Icons.Filled.ErrorOutline else Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = SkyflowColors.ErrorColor,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Column {
                             Text(
-                                if (isSubExpired) "Подписка истекла"
-                                else              "Подписка не настроена",
+                                if (accessExpired) "Пробный период закончился"
+                                else               "Скорость — по подписке",
                                 style      = MaterialTheme.typography.titleSmall,
                                 color      = SkyflowColors.ErrorColor,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                if (isSubExpired) "VPN и белый список недоступны до оплаты"
-                                else              "Настройте VLESS-подписку для работы приложения",
+                                if (accessExpired) "Оформите подписку, чтобы продолжить"
+                                else               "В пробном периоде работает Маскировка. Для Скорости оформите подписку или войдите по ID.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = SkyflowColors.TextSecondary
                             )
                         }
                     }
-                    if (isSubExpired) {
+                    if (accessExpired) {
                         Button(
                             onClick  = {
                                 context.startActivity(
@@ -620,11 +650,13 @@ fun TunnelTab() {
                             ),
                             shape    = SkyflowShapes.Chip
                         ) {
-                            Text("✈  Оплатить через Telegram", fontWeight = FontWeight.SemiBold)
+                            Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Оплатить через Telegram", fontWeight = FontWeight.SemiBold)
                         }
                     } else {
                         OutlinedButton(
-                            onClick  = { showServersScreen = true },
+                            onClick  = { showSubscription = true },
                             modifier = Modifier.fillMaxWidth(),
                             colors   = ButtonDefaults.outlinedButtonColors(
                                 contentColor = SkyflowColors.AccentLight
@@ -853,13 +885,7 @@ fun TunnelTab() {
                     BasicTextField(
                         value = vkLink,
                         onValueChange = { newValue ->
-                            val trimmed = newValue.trim()
-                            vkLink = trimmed
-                            if (trimmed.isBlank()) {
-                                linkCreatedAt = 0L
-                                linkRemainingSeconds = 0L
-                                scope.launch { store.saveLinkCreatedAt(0L) }
-                            }
+                            vkLink = newValue.trim()
                         },
                         readOnly = tunnelRunning,
                         maxLines = 1,
@@ -889,57 +915,6 @@ fun TunnelTab() {
                                 }
                             }
                     )
-                    AnimatedVisibility(
-                        visible = vkLink.isNotBlank() && linkCreatedAt > 0L
-                    ) {
-                        Column {
-                            Spacer(Modifier.height(5.dp))
-                            HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
-                            Spacer(Modifier.height(5.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(timerIcon, fontSize = 10.sp)
-                                Text(
-                                    timerLabel,
-                                    fontSize = readableSp(12f),
-                                    color = if (linkRemainingSeconds <= 3600) timerColor
-                                    else SkyflowColors.TextSecondary
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(3.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(SkyflowColors.Border)
-                                ) {
-                                    val animatedPct by animateFloatAsState(
-                                        timerPct,
-                                        animationSpec = tween(500),
-                                        label = "timer_pct"
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxHeight()
-                                            .fillMaxWidth(animatedPct)
-                                            .clip(RoundedCornerShape(2.dp))
-                                            .background(timerBarColor)
-                                    )
-                                }
-                                Text(
-                                    text = if (linkRemainingSeconds > 0)
-                                        formatRemaining(linkRemainingSeconds)
-                                    else "00:00:00",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = timerColor
-                                )
-                            }
-                        }
-                    }
                     AnimatedVisibility(visible = !isConnected) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -963,9 +938,6 @@ fun TunnelTab() {
                                                     if (link != null) {
                                                         vkLink = link
                                                         autoLinkError = ""
-                                                        val now = System.currentTimeMillis() / 1000
-                                                        linkCreatedAt = now
-                                                        store.saveLinkCreatedAt(now)
                                                     } else {
                                                         autoLinkError = "Не удалось создать — вставьте вручную"
                                                     }
@@ -1039,7 +1011,7 @@ fun TunnelTab() {
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Хеш:", fontSize = readableSp(12f), color = SkyflowColors.TextSecondary)
+                                    Text("Код:", fontSize = readableSp(12f), color = SkyflowColors.TextSecondary)
                                     Text(
                                         parsedHash,
                                         fontSize = readableSp(12f),
@@ -1051,7 +1023,16 @@ fun TunnelTab() {
                                         modifier = Modifier.weight(1f)
                                     )
                                     if (linkStatus == LinkStatus.ACTIVE) {
-                                        Text("✓ Готова", fontSize = readableSp(12f), color = SkyflowColors.Connected)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = SkyflowColors.Connected,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(Modifier.width(3.dp))
+                                            Text("Готова", fontSize = readableSp(12f), color = SkyflowColors.Connected)
+                                        }
                                     }
                                 }
                             }
@@ -1092,14 +1073,28 @@ fun TunnelTab() {
             }
         }
 
-        ConnectedServerInfo(
-            isConnected = isConnected,
-            isSpeedMode = isSpeedMode,
-            speedServer = activeSpeedServer,
-            routingModeLabel = if (isSpeedMode && isConnected) {
-                com.wdtt.client.xray.XrayRoutingMode.fromKey(activeRoutingModeKey).label
-            } else null
-        )
+        if (isSpeedMode) {
+            ConnectedServerInfo(
+                isConnected = isConnected,
+                isSpeedMode = isSpeedMode,
+                speedServer = activeSpeedServer,
+                routingModeLabel = if (isConnected) {
+                    com.wdtt.client.xray.XrayRoutingMode.fromKey(activeRoutingModeKey).label
+                } else null
+            )
+        } else {
+            AnimatedVisibility(
+                visible = isConnected,
+                enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+            ) {
+                ConnectionMetricsChips(
+                    elapsedSec = elapsedSec,
+                    downSpeedMbs = downSpeedMbs,
+                    upSpeedMbs = upSpeedMbs,
+                )
+            }
+        }
 
         AnimatedVisibility(
             visible = isConnected,
@@ -1265,7 +1260,12 @@ fun TunnelTab() {
                                                 .background(svc.iconBg),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text(svc.emoji, fontSize = 11.sp)
+                                            Icon(
+                                                svc.icon,
+                                                contentDescription = null,
+                                                tint = SkyflowColors.TextSecondary,
+                                                modifier = Modifier.size(13.dp)
+                                            )
                                         }
                                         Text(
                                             svc.name,
@@ -1355,6 +1355,68 @@ fun TunnelTab() {
                 onBack = { showServersScreen = false }
             )
         }
+
+        if (showSubscription) {
+            BackHandler { showSubscription = false }
+            SubscriptionSetupScreen(
+                settingsStore = store,
+                onFinish = {
+                    showSubscription = false
+                    subExpireAt  = store.getSubExpireAt()
+                    hasServers   = store.loadServers().isNotEmpty()
+                    trialStartAt = store.getTrialStartAt()
+                },
+            )
+        }
+    }
+}
+
+/**
+ * Статичная шапка главного экрана: бренд + один вход в настройки. Раньше
+ * шестерёнка была свободно перетаскиваемым `FloatingToolbar` (тема/профиль),
+ * который наезжал на новый верх экрана и дублировал вкладку «Настройки» —
+ * теперь один статичный гир-icon ведёт в единственную вкладку настроек.
+ */
+@Composable
+private fun BrandTopBar(onOpenSettings: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row {
+            Text(
+                "SKY",
+                fontFamily = displayFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                letterSpacing = 1.5.sp,
+                color = SkyflowColors.TextPrimary,
+            )
+            Text(
+                "FLOW",
+                fontFamily = displayFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                letterSpacing = 1.5.sp,
+                color = SkyflowColors.AccentLight,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(SkyflowShapes.Chip)
+                .background(SkyflowColors.GlassSurface)
+                .clickable(onClick = onOpenSettings),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Settings,
+                contentDescription = "Настройки",
+                tint = SkyflowColors.TextSecondary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
     }
 }
 
@@ -1371,172 +1433,94 @@ private fun TunnelModeSwitch(
     onAutoSwitchChange: (Boolean) -> Unit,
 ) {
     val isSpeed = selectedMode == "speed"
-    val autoHint = when (networkTransport) {
-        NetworkTransport.WIFI -> "Wi‑Fi → скоростной"
-        NetworkTransport.CELLULAR -> "LTE → белый список"
-        NetworkTransport.UNKNOWN -> "Wi‑Fi → скоростной, LTE → белый список"
+    val hint = when {
+        !enabled -> "Режим меняется до подключения"
+        manualOverride && autoSwitchEnabled -> "Выбрано вручную · авто вернётся при смене сети"
+        autoSwitchEnabled && networkTransport == NetworkTransport.WIFI -> "Авто · Wi‑Fi → скорость"
+        autoSwitchEnabled && networkTransport == NetworkTransport.CELLULAR -> "Авто · LTE → маскировка"
+        autoSwitchEnabled -> "Авто · по типу сети"
+        isSpeed -> "Максимально быстрое соединение"
+        else -> "Незаметно · обходит блокировки"
     }
-    val currentModeLabel = if (isSpeed) "⚡ Скоростной" else "☁ Белый список"
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        animationSpec = tween(250),
-        label = "modes_chevron"
-    )
+    val hintColor = if (manualOverride && autoSwitchEnabled) SkyflowColors.WarnColor else SkyflowColors.TextMuted
 
-    Surface(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (enabled || autoSwitchEnabled) 1f else 0.5f),
-        shape = SkyflowShapes.Card,
-        color = SkyflowColors.GlassSurface,
-        border = SkyflowBorders.Glass
+            .alpha(if (enabled || autoSwitchEnabled) 1f else 0.6f),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column {
-            // Always-visible header row
+        // Компактный сегментированный переключатель режимов (всегда на виду).
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = SkyflowShapes.Card,
+            color = SkyflowColors.GlassSurface,
+            border = SkyflowBorders.Glass,
+        ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onExpandedChange(!expanded) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    currentModeLabel,
-                    fontSize = readableSp(13f),
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isSpeed) SkyflowColors.Connected else SkyflowColors.AccentLight,
+                ModePill(
+                    label = "Маскировка",
+                    icon = Icons.Outlined.VisibilityOff,
+                    selected = !isSpeed,
+                    enabled = enabled,
+                    accentColor = SkyflowColors.Accent,
                     modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    onClick = { onModeChange("whitelist") },
                 )
-                if (autoSwitchEnabled) {
-                    Surface(
-                        shape = SkyflowShapes.LogEntry,
-                        color = SkyflowColors.AccentMuted,
-                        border = BorderStroke(0.5.dp, SkyflowColors.Accent.copy(alpha = 0.3f))
-                    ) {
-                        Text(
-                            "Авто",
-                            fontSize = readableSp(10f),
-                            fontWeight = FontWeight.SemiBold,
-                            color = SkyflowColors.AccentLight,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                }
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = SkyflowColors.TextMuted,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .graphicsLayer { rotationZ = chevronRotation }
+                ModePill(
+                    label = "Скорость",
+                    icon = Icons.Filled.Bolt,
+                    selected = isSpeed,
+                    enabled = enabled,
+                    accentColor = SkyflowColors.Connected,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChange("speed") },
                 )
             }
+        }
 
-            // Expandable content
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(tween(250)) + fadeIn(tween(250)),
-                exit = shrinkVertically(tween(200)) + fadeOut(tween(150))
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "РЕЖИМ ПОДКЛЮЧЕНИЯ",
-                            style = SkyflowTextStyles.labelUppercase,
-                            color = SkyflowColors.TextMuted
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                "Авто",
-                                fontSize = readableSp(10f),
-                                color = if (autoSwitchEnabled) SkyflowColors.AccentLight else SkyflowColors.TextMuted
-                            )
-                            Switch(
-                                checked = autoSwitchEnabled,
-                                onCheckedChange = onAutoSwitchChange,
-                                modifier = Modifier.height(24.dp),
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = SkyflowColors.Connected,
-                                    checkedTrackColor = SkyflowColors.Connected.copy(alpha = 0.35f),
-                                    uncheckedThumbColor = SkyflowColors.TextMuted,
-                                    uncheckedTrackColor = SkyflowColors.Border
-                                )
-                            )
-                        }
-                    }
-                    if (autoSwitchEnabled) {
-                        Text(
-                            "Авто: $autoHint",
-                            fontSize = readableSp(10f),
-                            color = SkyflowColors.TextSecondary,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    if (manualOverride && autoSwitchEnabled) {
-                        Text(
-                            "Выбрано вручную — авто снова при смене Wi‑Fi/LTE",
-                            fontSize = readableSp(10f),
-                            color = SkyflowColors.WarnColor,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TunnelModeOption(
-                            label = "☁ Белый список",
-                            subtitle = "VK/TURN → WG",
-                            selected = !isSpeed,
-                            enabled = enabled,
-                            accentColor = SkyflowColors.AccentLight,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onModeChange("whitelist") }
-                        )
-                        TunnelModeOption(
-                            label = "⚡ Скоростной",
-                            subtitle = "WG → VPS",
-                            selected = isSpeed,
-                            enabled = enabled,
-                            accentColor = SkyflowColors.Connected,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onModeChange("speed") }
-                        )
-                    }
-                    if (!enabled) {
-                        Text(
-                            "Смена режима доступна после отключения",
-                            fontSize = readableSp(10f),
-                            color = SkyflowColors.TextMuted,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                hint,
+                fontSize = readableSp(11f),
+                color = hintColor,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "Авто",
+                fontSize = readableSp(11f),
+                color = if (autoSwitchEnabled) SkyflowColors.AccentLight else SkyflowColors.TextMuted,
+            )
+            Spacer(Modifier.width(6.dp))
+            Switch(
+                checked = autoSwitchEnabled,
+                onCheckedChange = onAutoSwitchChange,
+                modifier = Modifier.height(24.dp),
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SkyflowColors.Connected,
+                    checkedTrackColor = SkyflowColors.Connected.copy(alpha = 0.35f),
+                    uncheckedThumbColor = SkyflowColors.TextMuted,
+                    uncheckedTrackColor = SkyflowColors.Border,
+                ),
+            )
         }
     }
 }
 
 @Composable
-private fun TunnelModeOption(
+private fun ModePill(
     label: String,
-    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     selected: Boolean,
     enabled: Boolean,
     accentColor: Color,
@@ -1544,41 +1528,37 @@ private fun TunnelModeOption(
     onClick: () -> Unit,
 ) {
     val bg by animateColorAsState(
-        if (selected) accentColor.copy(alpha = 0.18f) else SkyflowColors.GlassSurfaceElevated,
-        label = "mode_opt_bg"
+        if (selected) accentColor else Color.Transparent,
+        label = "mode_pill_bg"
     )
-    val borderColor by animateColorAsState(
-        if (selected) accentColor.copy(alpha = 0.55f) else SkyflowColors.Border,
-        label = "mode_opt_border"
-    )
+    val fg = if (selected) SkyflowColors.OnAccent else SkyflowColors.TextSecondary
     Surface(
-        modifier = modifier,
+        modifier = modifier.height(46.dp),
         shape = SkyflowShapes.Chip,
         color = bg,
-        border = BorderStroke(if (selected) 1.dp else 0.5.dp, borderColor),
         onClick = { if (enabled) onClick() },
         enabled = enabled,
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = fg,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(6.dp))
             Text(
                 label,
-                fontSize = readableSp(11f),
-                fontWeight = FontWeight.Bold,
-                color = if (selected) accentColor else SkyflowColors.TextSecondary,
-                textAlign = TextAlign.Center,
+                fontFamily = displayFontFamily,
+                fontSize = readableSp(13f),
+                fontWeight = FontWeight.SemiBold,
+                color = fg,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                subtitle,
-                fontSize = readableSp(9f),
-                color = SkyflowColors.TextMuted,
-                textAlign = TextAlign.Center,
-                maxLines = 1
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -1680,6 +1660,16 @@ private fun PowerButton(
                 val iconTop = (canvasSize.height - iconSize) / 2f
                 val cx = canvasSize.width / 2f
                 val sw = 2.dp.toPx()
+                if (isActive) {
+                    // Защищено: галочка вместо power-глифа — явный сигнал «готово»,
+                    // как в макете (i-check), а не просто перекрашенный power-символ.
+                    val p1 = Offset(iconLeft + iconSize * 0.22f, iconTop + iconSize * 0.52f)
+                    val p2 = Offset(iconLeft + iconSize * 0.42f, iconTop + iconSize * 0.72f)
+                    val p3 = Offset(iconLeft + iconSize * 0.80f, iconTop + iconSize * 0.30f)
+                    drawLine(ringColor, p1, p2, sw, StrokeCap.Round)
+                    drawLine(ringColor, p2, p3, sw, StrokeCap.Round)
+                    return@drawBehind
+                }
                 drawLine(
                     ringColor,
                     Offset(cx, iconTop),
@@ -1715,13 +1705,13 @@ private fun StatusLabel(
     }
     val text = when {
         !tunnelRunning -> "Отключено"
-        isConnecting -> "Подключение..."
+        isConnecting -> "Подключаюсь…"
         else -> {
             val h = elapsedSec / 3600
             val m = (elapsedSec % 3600) / 60
             val s = elapsedSec % 60
-            if (h > 0) "Подключено · %02d:%02d:%02d".format(h, m, s)
-            else "Подключено · %02d:%02d".format(m, s)
+            if (h > 0) "Защищено · %02d:%02d:%02d".format(h, m, s)
+            else "Защищено · %02d:%02d".format(m, s)
         }
     }
     Column(
@@ -1731,6 +1721,8 @@ private fun StatusLabel(
         Text(
             text,
             style = MaterialTheme.typography.headlineMedium,
+            fontFamily = displayFontFamily,
+            fontWeight = FontWeight.SemiBold,
             color = color,
         )
         if (isConnected) {
@@ -1748,6 +1740,109 @@ private fun StatusLabel(
                 textAlign = TextAlign.Center
             )
         }
+    }
+}
+
+/**
+ * Живые шаги подключения (маскировка): Авторизация → Облачный релей → Сервер.
+ * Использует уже существующие сигналы состояния — без новых источников данных.
+ */
+@Composable
+private fun ConnectingStageChips(stage: ConnectionStage, activeWorkers: Int) {
+    val authDone   = stage == ConnectionStage.SERVER_DTLS || stage == ConnectionStage.VPN_READY
+    val relayDone  = activeWorkers > 0 || stage == ConnectionStage.VPN_READY
+    val serverDone = stage == ConnectionStage.VPN_READY
+
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        StageChip("Авторизация", authDone)
+        StageChip("Облачный релей", relayDone)
+        StageChip("Сервер", serverDone)
+    }
+}
+
+@Composable
+private fun StageChip(label: String, done: Boolean) {
+    Surface(
+        shape  = SkyflowShapes.Chip,
+        color  = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (done) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = SkyflowColors.Connected,
+                    modifier = Modifier.size(12.dp),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .border(1.dp, SkyflowColors.TextMuted, CircleShape),
+                )
+            }
+            Text(
+                label,
+                fontSize = readableSp(10f),
+                color = if (done) SkyflowColors.TextPrimary else SkyflowColors.TextMuted,
+            )
+        }
+    }
+}
+
+/**
+ * Компактный ряд метрик активного подключения (маскировка): таймер сессии,
+ * скорость загрузки/отдачи — вместо дублирующей карточки «Защищённый туннель».
+ */
+@Composable
+private fun ConnectionMetricsChips(elapsedSec: Long, downSpeedMbs: Float, upSpeedMbs: Float) {
+    val h = elapsedSec / 3600
+    val m = (elapsedSec % 3600) / 60
+    val s = elapsedSec % 60
+    val timeText = if (h > 0) "%02d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        MetricChip {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(SkyflowColors.Connected),
+            )
+            Text(timeText, fontSize = readableSp(11f), color = SkyflowColors.TextPrimary)
+        }
+        MetricChip {
+            Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = SkyflowColors.TextMuted, modifier = Modifier.size(11.dp))
+            Text("%.1f МБ/с".format(downSpeedMbs), fontSize = readableSp(11f), color = SkyflowColors.TextPrimary)
+        }
+        MetricChip {
+            Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = SkyflowColors.TextMuted, modifier = Modifier.size(11.dp))
+            Text("%.1f МБ/с".format(upSpeedMbs), fontSize = readableSp(11f), color = SkyflowColors.TextPrimary)
+        }
+    }
+}
+
+@Composable
+private fun MetricChip(content: @Composable RowScope.() -> Unit) {
+    Surface(
+        shape  = SkyflowShapes.Chip,
+        color  = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            content = content,
+        )
     }
 }
 
@@ -2041,13 +2136,6 @@ private fun parseVkHash(input: String): String {
     }
 
     return VkHashParser.parse(trimmed)
-}
-
-private fun formatRemaining(seconds: Long): String {
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
-    val s = seconds % 60
-    return "%02d:%02d:%02d".format(h, m, s)
 }
 
 private suspend fun createVkCallLink(): String? {

@@ -2,12 +2,12 @@ package vkauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/browserprofile"
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/captcha"
-	"github.com/samosvalishe/free-turn-proxy/internal/randx"
 
 	tlsclient "github.com/bogdanfinn/tls-client"
 )
@@ -40,17 +40,23 @@ func (c *Client) runCaptchaChain(
 
 	case "rjs":
 		c.log.Infof("[STREAM %d] [КАПЧА] RJS: Go v2 выбран в настройках", streamID)
-		token, err := c.runGoAutoSolve(ctx, captchaErr, streamID, httpClient, profile, 2)
+		token, err := c.runGoAutoSolve(ctx, captchaErr, streamID, httpClient, profile, 1)
 		if err == nil {
 			return token, nil
 		}
 		if ctx.Err() != nil {
 			return "", err
 		}
+		if errors.Is(err, captcha.ErrCaptchaRateLimit) {
+			return c.abortOnRateLimit(streamID, err)
+		}
 		c.log.Warnf("[STREAM %d] [КАПЧА] RJS: ошибка, fallback на WBV Auto: %v", streamID, err)
 		token, err = requestWebViewCaptcha(streamID, captchaErr, "auto", captchaAutoWebViewTimeout)
 		if err == nil {
 			return token, nil
+		}
+		if errors.Is(err, captcha.ErrCaptchaRateLimit) {
+			return c.abortOnRateLimit(streamID, err)
 		}
 		return c.runProxyManualFallback(ctx, captchaErr, streamID, err)
 
@@ -68,7 +74,13 @@ func (c *Client) runAutoCaptchaChain(
 ) (string, error) {
 	c.log.Infof("[STREAM %d] [КАПЧА] AUTO: старт цепочки", streamID)
 
-	token, solveErr := c.runGoAutoSolve(ctx, captchaErr, streamID, httpClient, profile, 2)
+	// Принцип: ОДНА попытка на метод, аборт при VK rate-limit. Раньше цепочка
+	// делала Go×2 → WBV×2 (2-я отменяла 1-ю) → Go×1 → … — ~5 check-запросов по
+	// одной сессии за ~13с, из-за чего VK банил сессию (error_limit) и всё
+	// последующее (включая прокси) было бесполезно.
+
+	// 1) Одна тихая Go-v2 попытка.
+	token, solveErr := c.runGoAutoSolve(ctx, captchaErr, streamID, httpClient, profile, 1)
 	if solveErr == nil {
 		c.log.Infof("[STREAM %d] [КАПЧА] AUTO: Go v2 решил капчу", streamID)
 		return token, nil
@@ -76,55 +88,55 @@ func (c *Client) runAutoCaptchaChain(
 	if ctx.Err() != nil {
 		return "", solveErr
 	}
-	lastErr := solveErr
-	c.log.Warnf("[STREAM %d] [КАПЧА] AUTO: Go v2 не решил за 2 попытки: %v", streamID, solveErr)
-
-	for wbvAttempt := 1; wbvAttempt <= 2; wbvAttempt++ {
-		c.log.Infof("[STREAM %d] [КАПЧА] AUTO: WBV Auto попытка %d/2 (timeout %s)", streamID, wbvAttempt, captchaAutoWebViewTimeout)
-		token, solveErr = requestWebViewCaptcha(streamID, captchaErr, "auto", captchaAutoWebViewTimeout)
-		if solveErr == nil {
-			c.log.Infof("[STREAM %d] [КАПЧА] AUTO: WBV Auto решил капчу", streamID)
-			return token, nil
-		}
-		if ctx.Err() != nil {
-			return "", solveErr
-		}
-		lastErr = solveErr
-		if isWebViewCaptchaTimeout(solveErr) {
-			c.log.Warnf("[STREAM %d] [КАПЧА] AUTO: WBV Auto timeout %d/2", streamID, wbvAttempt)
-		} else {
-			c.log.Warnf("[STREAM %d] [КАПЧА] AUTO: WBV Auto ошибка %d/2: %v", streamID, wbvAttempt, solveErr)
-		}
-
-		timer := time.NewTimer(time.Duration(250+randx.Intn(250)) * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return "", ctx.Err()
-		case <-timer.C:
-		}
+	if errors.Is(solveErr, captcha.ErrCaptchaRateLimit) {
+		return c.abortOnRateLimit(streamID, solveErr)
 	}
+	lastErr := solveErr
+	c.log.Warnf("[STREAM %d] [КАПЧА] AUTO: Go v2 не решил: %v", streamID, solveErr)
 
-	c.log.Infof("[STREAM %d] [КАПЧА] AUTO: финальная Go v2 попытка после WBV", streamID)
-	token, solveErr = c.runGoAutoSolve(ctx, captchaErr, streamID, httpClient, profile, 1)
+	// 2) Одна авто-WebView попытка (щедрый таймаут, без цикла и само-отмены).
+	c.log.Infof("[STREAM %d] [КАПЧА] AUTO: WBV Auto (timeout %s)", streamID, captchaAutoWebViewTimeout)
+	token, solveErr = requestWebViewCaptcha(streamID, captchaErr, "auto", captchaAutoWebViewTimeout)
 	if solveErr == nil {
-		c.log.Infof("[STREAM %d] [КАПЧА] AUTO: финальная Go v2 решила капчу", streamID)
+		c.log.Infof("[STREAM %d] [КАПЧА] AUTO: WBV Auto решил капчу", streamID)
 		return token, nil
 	}
 	if ctx.Err() != nil {
 		return "", solveErr
 	}
+	if errors.Is(solveErr, captcha.ErrCaptchaRateLimit) {
+		return c.abortOnRateLimit(streamID, solveErr)
+	}
 	lastErr = solveErr
-	c.log.Warnf("[STREAM %d] [КАПЧА] AUTO: финальная Go v2 ошибка: %v", streamID, solveErr)
+	if isWebViewCaptchaTimeout(solveErr) {
+		c.log.Warnf("[STREAM %d] [КАПЧА] AUTO: WBV Auto timeout", streamID)
+	} else {
+		c.log.Warnf("[STREAM %d] [КАПЧА] AUTO: WBV Auto не решил: %v", streamID, solveErr)
+	}
 
-	c.log.Infof("[STREAM %d] [КАПЧА] AUTO: автоцепочка не прошла, открыт ручной WebView", streamID)
+	// 3) Ручной интерактивный WebView — пользователь решает сам.
+	c.log.Infof("[STREAM %d] [КАПЧА] AUTO: открыт ручной WebView", streamID)
 	token, solveErr = requestWebViewCaptcha(streamID, captchaErr, "manual", captchaManualWebViewTimeout)
 	if solveErr == nil {
 		c.log.Infof("[STREAM %d] [КАПЧА] AUTO: ручной WebView решил капчу", streamID)
 		return token, nil
 	}
+	if errors.Is(solveErr, captcha.ErrCaptchaRateLimit) {
+		return c.abortOnRateLimit(streamID, solveErr)
+	}
 
+	// 4) Локальный прокси :8765 — последний резерв (пропустит rate-limited сессию).
 	return c.runProxyManualFallback(ctx, captchaErr, streamID, fmt.Errorf("automatic captcha chain failed: %w; manual webview failed: %v", lastErr, solveErr))
+}
+
+// abortOnRateLimit вызывается, когда VK ответил error_limit по текущей сессии
+// капчи. Дальнейшие попытки по той же сессии (WBV/прокси) лишь усугубляют лимит,
+// поэтому ставим lockout — стрим отступит и на следующем цикле получит свежий
+// not_robot challenge вместо долбёжки отравленной сессии.
+func (c *Client) abortOnRateLimit(streamID int, err error) (string, error) {
+	c.log.Warnf("[STREAM %d] [КАПЧА] VK ограничил проверку (rate limit) — отступаем, свежая капча позже", streamID)
+	c.engageLockout(90 * time.Second)
+	return "", err
 }
 
 func (c *Client) runGoAutoSolve(
@@ -151,6 +163,11 @@ func (c *Client) runProxyManualFallback(
 	streamID int,
 	priorErr error,
 ) (string, error) {
+	// Сессия уже отравлена VK rate-limit — прокси по той же сессии не поможет,
+	// только усилит лимит. Отступаем.
+	if errors.Is(priorErr, captcha.ErrCaptchaRateLimit) {
+		return c.abortOnRateLimit(streamID, priorErr)
+	}
 	if c.manualSolve == nil {
 		return "", priorErr
 	}

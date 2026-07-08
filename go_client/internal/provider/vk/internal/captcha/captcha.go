@@ -47,7 +47,7 @@ var (
 	reCaptchaDebugInfo  = regexp.MustCompile(`debug_info:(?:[^"]*\|\|)?"([a-fA-F0-9]{64})"`)
 	reCaptchaVersion    = regexp.MustCompile(`vkid/([0-9.]*)/not_robot_captcha\.js`)
 
-	errCaptchaRateLimit = errors.New("captcha session rate limit reached")
+	ErrCaptchaRateLimit = errors.New("captcha session rate limit reached")
 	errCaptchaBot       = errors.New("captcha bot challenge")
 
 	captchaMaxAttempts = 2
@@ -159,7 +159,7 @@ func (s *captchaSession) solveWithMaxAttempts(captchaErr *Error, streamID int, m
 			return token, nil
 		}
 		l.Warnf("[STREAM %d] [Captcha] solve attempt %d failed: %v", streamID, attempt, solveErr)
-		if errors.Is(solveErr, errCaptchaRateLimit) {
+		if errors.Is(solveErr, ErrCaptchaRateLimit) {
 			return "", solveErr
 		}
 
@@ -462,7 +462,13 @@ func (s *captchaSession) solveCheckboxCaptcha(
 	hash string,
 	debugInfo string,
 ) (string, error) {
+	// Приоритет отпечатка устройства: захваченный реальный браузер (savedProfile,
+	// самый сильный) → согласованный с текущим профилем device из пула → статический
+	// fallback. Раньше здесь всегда шёл один статичный desktop-отпечаток.
 	deviceJSON := captchaDeviceInfo
+	if strings.TrimSpace(s.profile.DeviceJSON) != "" {
+		deviceJSON = s.profile.DeviceJSON
+	}
 	if s.savedProfile != nil && strings.TrimSpace(s.savedProfile.DeviceJSON) != "" {
 		deviceJSON = s.savedProfile.DeviceJSON
 	}
@@ -491,7 +497,7 @@ func (s *captchaSession) solveCheckboxCaptcha(
 		return "", &captchaShowTypeError{ShowType: check.ShowType}
 	}
 	if strings.EqualFold(check.Status, "error_limit") {
-		return "", errCaptchaRateLimit
+		return "", ErrCaptchaRateLimit
 	}
 	if strings.EqualFold(check.Status, "bot") {
 		return "", fmt.Errorf("%w: checkbox captcha rejected: status=%s", errCaptchaBot, check.Status)

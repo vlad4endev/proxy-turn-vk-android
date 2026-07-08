@@ -27,6 +27,12 @@ class WireGuardHelper(context: Context) {
 
         const val SPEED_WG_PORT = 51820
 
+        // MTU интерфейса WireGuard. Ниже 1280, т.к. внутренний WG-пакет ещё раз
+        // оборачивается rtpopus (AEAD+RTP ~40Б) + TURN ChannelData + UDP/IP до
+        // выхода в реальную сеть; на LTE с path-MTU ~1400 прежние 1280 давали
+        // фрагментацию/потери на bulk-трафике («подключено, но не грузит»).
+        const val WG_MTU = 1240
+
         /**
          * Endpoint для скоростного режима: IP из [peer] (settingsStore.peer),
          * DTLS-порт отбрасывается, WG-порт всегда [SPEED_WG_PORT].
@@ -54,7 +60,7 @@ class WireGuardHelper(context: Context) {
         }
 
         /** Подставляет или заменяет MTU в секции [Interface] (TURN/DTLS накладные расходы). */
-        fun ensureWireGuardMtu(config: String, mtu: Int = 1280): String {
+        fun ensureWireGuardMtu(config: String, mtu: Int = WG_MTU): String {
             val mtuLine = "MTU = $mtu"
             val lines = config.lines().toMutableList()
             val interfaceIdx = lines.indexOfFirst { it.trim().equals("[Interface]", ignoreCase = true) }
@@ -108,23 +114,12 @@ class WireGuardHelper(context: Context) {
             val normalizedConfig = ensureWireGuardMtu(configString)
             val parsedConfig = Config.parse(ByteArrayInputStream(normalizedConfig.toByteArray(Charsets.UTF_8)))
 
-            val builder = Interface.Builder()
-                .parseAddresses(parsedConfig.`interface`.addresses.joinToString(", ") { it.toString() })
-            
-            if (parsedConfig.`interface`.dnsServers.isNotEmpty()) {
-                builder.parseDnsServers(parsedConfig.`interface`.dnsServers.joinToString(", ") { it.hostAddress ?: "" })
-            }
-            if (parsedConfig.`interface`.listenPort.isPresent) {
-                builder.parseListenPort(parsedConfig.`interface`.listenPort.get().toString())
-            }
-            builder.parseMtu("1280")
-            builder.parsePrivateKey(parsedConfig.`interface`.keyPair.privateKey.toBase64())
-
             // 1. Пакеты, которые всегда исключаются (наше приложение, ВК)
             // 2. Получаю настройки пользователя
+            // Список исключений — общий для обоих вариантов конфига (IPv6 / IPv4-only).
             val settingsStore = SettingsStore(appContext)
             val savedExcluded = settingsStore.excludedApps.first()
-            
+
             val userSelected = savedExcluded.split(",").filter { it.isNotEmpty() }.toSet()
 
             // В обоих режимах (ЧС и БС) мы технически используем Blacklist (Checked = Excluded),
@@ -133,31 +128,65 @@ class WireGuardHelper(context: Context) {
             val excluded = mutableSetOf(appContext.packageName, "com.vkontakte.android", "com.vk.calls")
             excluded.addAll(userSelected)
             val installedExcluded = excluded.filter { it.isInstalledPackage() }.toSet()
-            if (installedExcluded.isNotEmpty()) {
-                builder.excludeApplications(installedExcluded)
-            }
 
-            val newInterface = builder.build()
+            // Собирает финальный WireGuard-конфиг.
+            //   includeIpv6=true  — добавляет ULA v6-адрес (fd00::3/128) + маршрут ::/0,
+            //                       чтобы IPv6 не утекал мимо VPN на dual-stack сетях.
+            //   includeIpv6=false — только IPv4: fallback для устройств/сетей, где
+            //                       WG-бэкенд отклоняет добавление v6-адреса на tun
+            //                       («Cannot set address») и весь старт WG падает.
+            fun buildFinalConfig(includeIpv6: Boolean): Config {
+                val addresses = parsedConfig.`interface`.addresses.map { it.toString() }
+                    .filter { includeIpv6 || !it.contains(":") }
+                    .toMutableList()
+                if (includeIpv6 && addresses.none { it.contains(":") }) {
+                    addresses.add("fd00::3/128")
+                }
 
-            val peerBuilder = Peer.Builder()
-            val firstPeer = parsedConfig.peers.firstOrNull()
-                ?: throw IllegalStateException("WireGuard config has no peer")
-            firstPeer.let { peer ->
-                peerBuilder.parsePublicKey(peer.publicKey.toBase64())
-                if (peer.preSharedKey.isPresent) peerBuilder.parsePreSharedKey(peer.preSharedKey.get().toBase64())
-                if (peer.endpoint.isPresent) peerBuilder.parseEndpoint(peer.endpoint.get().toString())
-                if (peer.persistentKeepalive.isPresent) peerBuilder.parsePersistentKeepalive(peer.persistentKeepalive.get().toString())
+                val builder = Interface.Builder()
+                    .parseAddresses(addresses.joinToString(", "))
+
+                val dnsServers = parsedConfig.`interface`.dnsServers
+                if (dnsServers.isNotEmpty()) {
+                    builder.parseDnsServers(dnsServers.joinToString(", ") { it.hostAddress ?: "" })
+                } else {
+                    // Динамический конфиг без строки DNS + маршрут 0.0.0.0/0 в туннель
+                    // = резолвинг уходит в туннель в никуда (DNS-чёрная дыра). Дефолтим
+                    // на публичные резолверы, чтобы имена всегда резолвились.
+                    builder.parseDnsServers("1.1.1.1, 8.8.8.8")
+                }
+                if (parsedConfig.`interface`.listenPort.isPresent) {
+                    builder.parseListenPort(parsedConfig.`interface`.listenPort.get().toString())
+                }
+                builder.parseMtu(WG_MTU.toString())
+                builder.parsePrivateKey(parsedConfig.`interface`.keyPair.privateKey.toBase64())
+                if (installedExcluded.isNotEmpty()) {
+                    builder.excludeApplications(installedExcluded)
+                }
+
+                val peerBuilder = Peer.Builder()
+                val firstPeer = parsedConfig.peers.firstOrNull()
+                    ?: throw IllegalStateException("WireGuard config has no peer")
+                firstPeer.let { peer ->
+                    peerBuilder.parsePublicKey(peer.publicKey.toBase64())
+                    if (peer.preSharedKey.isPresent) peerBuilder.parsePreSharedKey(peer.preSharedKey.get().toBase64())
+                    if (peer.endpoint.isPresent) peerBuilder.parseEndpoint(peer.endpoint.get().toString())
+                    if (peer.persistentKeepalive.isPresent) peerBuilder.parsePersistentKeepalive(peer.persistentKeepalive.get().toString())
+                }
+                // Весь трафик в туннель; ::/0 добавляем только когда есть v6-адрес.
+                peerBuilder.parseAllowedIPs(if (includeIpv6) "0.0.0.0/0, ::/0" else "0.0.0.0/0")
+
+                return Config.Builder()
+                    .setInterface(builder.build())
+                    .addPeer(peerBuilder.build())
+                    .build()
             }
-            // Override AllowedIPs
-            peerBuilder.parseAllowedIPs("0.0.0.0/0")
-            
-            val finalConfig = Config.Builder()
-                .setInterface(newInterface)
-                .addPeer(peerBuilder.build())
-                .build()
 
             val nextTunnel = WgTunnel()
-            setTunnelUpWithRetry(nextTunnel, finalConfig)
+            // Сначала пробуем поднять туннель с IPv6 (защита от v6-утечки); если
+            // устройство/сеть отклоняет v6-адрес — откатываемся на IPv4-only, чтобы
+            // подключение всё равно состоялось.
+            setTunnelUp(nextTunnel, listOf(buildFinalConfig(true), buildFinalConfig(false)))
             sharedTunnel = nextTunnel
             Log.d("WG", "WireGuard tunnel started successfully")
         } catch (e: Exception) {
@@ -219,18 +248,30 @@ class WireGuardHelper(context: Context) {
         delay(300)
     }
 
-    private suspend fun setTunnelUpWithRetry(nextTunnel: WgTunnel, finalConfig: Config) {
+    /**
+     * Поднимает туннель, пробуя конфиги [configs] по порядку. Первый (обычно с
+     * IPv6) получает одну попытку — если он падает детерминированно (например
+     * «Cannot set address» на устройстве без v6), быстро переходим к следующему.
+     * Последний конфиг (IPv4-only fallback) получает 3 попытки на транзиентные
+     * сбои запуска сервиса.
+     */
+    private suspend fun setTunnelUp(nextTunnel: WgTunnel, configs: List<Config>) {
         var lastError: Exception? = null
-        repeat(3) { attempt ->
-            try {
-                backend.setState(nextTunnel, Tunnel.State.UP, finalConfig)
-                return
-            } catch (e: Exception) {
-                lastError = e
-                Log.w("WG", "WireGuard UP attempt ${attempt + 1}/3 failed: ${e.readableMessage()}")
-                runCatching { backend.setState(nextTunnel, Tunnel.State.DOWN, null) }
-                ensureGoBackendServiceStarted()
-                delay(250L * (attempt + 1))
+        configs.forEachIndexed { idx, config ->
+            val isLast = idx == configs.lastIndex
+            val attempts = if (isLast) 3 else 1
+            repeat(attempts) { attempt ->
+                try {
+                    backend.setState(nextTunnel, Tunnel.State.UP, config)
+                    if (idx > 0) Log.w("WG", "WireGuard поднят на fallback-конфиге #$idx (IPv4-only)")
+                    return
+                } catch (e: Exception) {
+                    lastError = e
+                    Log.w("WG", "WireGuard UP конфиг#$idx попытка ${attempt + 1}/$attempts: ${e.readableMessage()}")
+                    runCatching { backend.setState(nextTunnel, Tunnel.State.DOWN, null) }
+                    ensureGoBackendServiceStarted()
+                    delay(250L * (attempt + 1))
+                }
             }
         }
         throw lastError ?: IllegalStateException("WireGuard UP failed")

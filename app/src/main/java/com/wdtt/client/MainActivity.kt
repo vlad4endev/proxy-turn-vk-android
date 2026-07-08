@@ -27,12 +27,10 @@ import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VpnKey
-import androidx.compose.material.icons.outlined.FilterList
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.*
@@ -58,17 +56,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import com.wdtt.client.ui.AppUpdateDialog
 import com.wdtt.client.ui.AdaptiveContentHost
-import com.wdtt.client.ui.ExceptionsTab
-import com.wdtt.client.ui.FloatingToolbar
-import com.wdtt.client.ui.InfoTab
 import com.wdtt.client.ui.LogsTab
 import com.wdtt.client.ui.OnboardingScreen
+import com.wdtt.client.ui.SettingsHubTab
 import com.wdtt.client.ui.SetupPermissionsScreen
 import com.wdtt.client.ui.SubscriptionSetupScreen
 import com.wdtt.client.ui.ResponsiveLayout
 import com.wdtt.client.ui.SkyflowColors
 import com.wdtt.client.ui.SkyflowShapes
 import com.wdtt.client.ui.TunnelTab
+import com.wdtt.client.xray.SubscriptionParser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
@@ -149,13 +146,41 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
-                        !subscriptionSetupDone -> {
-                            SubscriptionSetupScreen(
-                                settingsStore = settingsStore,
-                                onFinish      = { /* setSubscriptionSetupDone called inside the screen */ }
-                            )
-                        }
                         else -> {
+                            // Первый вход: НЕ требуем подписку — стартуем 10-дневный пробный
+                            // период и пускаем сразу в приложение. Экран подписки доступен
+                            // внутри приложения (чип/кнопка), а не как обязательный гейт.
+                            LaunchedEffect(Unit) {
+                                if (settingsStore.getSubExpireAt() <= 0L) {
+                                    AccessManager(settingsStore)
+                                        .ensureTrialStarted(System.currentTimeMillis() / 1000L)
+
+                                    // Пробный период: подставляем общие триал-ресурсы, но
+                                    // только если у пользователя ещё нет своих — не перетираем
+                                    // уже настроенную ссылку/подписку.
+                                    if (settingsStore.wdttLink.first().isBlank() &&
+                                        BillingConfig.TRIAL_VK_CALL_LINK.isNotBlank()
+                                    ) {
+                                        settingsStore.saveWdttLink(BillingConfig.TRIAL_VK_CALL_LINK)
+                                    }
+                                    if (settingsStore.loadServers().isEmpty() &&
+                                        BillingConfig.TRIAL_SUB_URL.isNotBlank()
+                                    ) {
+                                        try {
+                                            val result = SubscriptionParser.fetchSubscription(BillingConfig.TRIAL_SUB_URL)
+                                            if (result.servers.isNotEmpty()) {
+                                                SubscriptionLinker.saveSubscription(
+                                                    settingsStore, BillingConfig.TRIAL_SUB_URL, result
+                                                )
+                                            }
+                                        } catch (_: Exception) {
+                                            // Нет сети на первом запуске — не блокируем вход,
+                                            // «Скорость» останется недоступна до следующего раза.
+                                        }
+                                    }
+                                }
+                                if (!subscriptionSetupDone) settingsStore.setSubscriptionSetupDone()
+                            }
                             MainScreen(
                                 settingsStore = settingsStore,
                                 themeMode = themeMode,
@@ -181,10 +206,9 @@ private data class NavItem(
 )
 
 private val navItems = listOf(
-    NavItem(0, "Туннель", Icons.Filled.VpnKey, Icons.Outlined.VpnKey),
-    NavItem(2, "Исключ.", Icons.Filled.FilterList, Icons.Outlined.FilterList),
-    NavItem(3, "Логи", Icons.Filled.Terminal, Icons.Outlined.Terminal),
-    NavItem(4, "Инфо", Icons.Filled.Info, Icons.Outlined.Info),
+    NavItem(0, "Главная", Icons.Filled.VpnKey, Icons.Outlined.VpnKey),
+    NavItem(3, "Активность", Icons.Filled.Terminal, Icons.Outlined.Terminal),
+    NavItem(4, "Настройки", Icons.Filled.Settings, Icons.Outlined.Settings),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -339,13 +363,20 @@ fun MainScreen(
                 ) { tab ->
                     AdaptiveContentHost {
                         when (tab) {
-                            0 -> TunnelTab()
-                            2 -> ExceptionsTab()
+                            0 -> TunnelTab(onOpenSettings = { selectedTab = 4 })
                             3 -> LogsTab()
-                            4 -> InfoTab(onUpdateFound = { release ->
-                                pendingRelease = release
-                            })
-                            else -> TunnelTab()
+                            4 -> SettingsHubTab(
+                                themeMode = themeMode,
+                                onThemeChange = onThemeChange,
+                                activeProfile = activeProfile,
+                                onActiveProfileChange = { profile ->
+                                    scope.launch { settingsStore.saveActiveProfile(profile) }
+                                },
+                                onUpdateFound = { release ->
+                                    pendingRelease = release
+                                },
+                            )
+                            else -> TunnelTab(onOpenSettings = { selectedTab = 4 })
                         }
                     }
                 }
@@ -372,16 +403,6 @@ fun MainScreen(
                 }
             }
         }
-
-        // Floating theme toolbar overlay
-        FloatingToolbar(
-            activeProfile = activeProfile,
-            onActiveProfileChange = { profile ->
-                scope.launch { settingsStore.saveActiveProfile(profile) }
-            },
-            currentTheme = themeMode,
-            onThemeChange = onThemeChange
-        )
     }
 
     pendingRelease?.let { release ->
@@ -523,7 +544,7 @@ private fun ProxyNavigationBar(
                                 )
                                 if (item.id == 3 && unreadErrors > 0) {
                                     Badge(
-                                        containerColor = if (tunnelRunning) SkyflowColors.Accent else WDTTColors.warning,
+                                        containerColor = if (tunnelRunning) SkyflowColors.Accent else SkyflowColors.WarnColor,
                                         contentColor = SkyflowColors.OnAccent,
                                         modifier = Modifier.offset(x = 12.dp, y = (-8).dp)
                                     ) {
@@ -607,7 +628,7 @@ private fun AppBackdrop(modifier: Modifier = Modifier) {
     )
     val leftGlow = Brush.radialGradient(
         colors = listOf(
-            Color(0xFF6366F1).copy(alpha = if (isDark) 0.10f else 0.08f),
+            SkyflowColors.AccentLight.copy(alpha = if (isDark) 0.10f else 0.08f),
             Color.Transparent
         )
     )

@@ -117,7 +117,7 @@ func (s *captchaSession) solveSliderCaptcha(
 			return check.SuccessToken, nil
 		}
 		if strings.EqualFold(check.Status, "error_limit") {
-			return "", errCaptchaRateLimit
+			return "", ErrCaptchaRateLimit
 		}
 	}
 	return "", errors.New("slider guesses exhausted")

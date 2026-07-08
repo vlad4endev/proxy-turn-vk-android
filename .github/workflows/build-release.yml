@@ -236,7 +236,9 @@ jobs:
           echo "Version: ${TAG}"
 
           # Generate changelog from commits since last tag (or last 20 commits if no tag)
-          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
+          # NB: без `|| true` пустой вывод git tag → grep exit 1 → pipefail роняет
+          # шаг уже ПОСЛЕ успешной сборки APK (репозиторий без тегов).
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1 || true)
           if [ -n "$PREV_TAG" ]; then
             echo "Changelog since ${PREV_TAG}"
             COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"%s" --no-merges | grep -v '^ci:\|^chore:\|^build:' || true)
@@ -257,7 +259,7 @@ jobs:
             -e 's/^refactor: //g' \
             | grep -v '^$' \
             | sed 's/^/- /' \
-            | head -20)
+            | head -20 || true)
 
           if [ -z "$CHANGELOG" ]; then
             CHANGELOG="- Исправления и улучшения стабильности"
