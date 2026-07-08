@@ -62,6 +62,26 @@ Resp:    {"active":true,"sub_url":"...","expire_at":1730000000}
 Для восстановления доступа после переустановки и периодического обновления
 конфигурации. Если подписки нет — `{"active":false,"sub_url":"","expire_at":0}`.
 
+### 4. Вход в существующую подписку (по subId / Telegram ID)
+```
+POST {BASE}/api/app/link
+Headers: X-Device-Id
+Body:    {"type":"subid|telegram_id","value":"<subId или tgId>"}
+Resp:    {"found":true,"sub_url":"...","expire_at":1730000000,"title":"..."}  | {"found":false}
+```
+Реализация поверх существующего `XUIClient`:
+`build_client_index()` → `find_panel_client(sub_id=<value>)` либо
+`find_panel_client(telegram_id=<value>)` → `enrich_client_from_panel` →
+`build_sub_url(subId)`. Заодно привязать `device_id → subscription`
+(чтобы работал эндпоинт #3). Если клиент не найден — `{"found":false}`.
+
+Идентификаторы: только **subId** (из ссылки подписки) и **Telegram ID**.
+Подтверждение (OTP) не требуется — subId работает как секрет-токен; Telegram ID
+без кода менее безопасен (риск принят продуктом). Телефон не поддерживается
+(в 3X-UI телефонов нет).
+
+Приложение затем грузит `sub_url` тем же `SubscriptionParser.fetchSubscription()`.
+
 ## Триал
 
 - **Маскировка** (VK→TURN→WG) — своя инфраструктура, backend не нужен: триал

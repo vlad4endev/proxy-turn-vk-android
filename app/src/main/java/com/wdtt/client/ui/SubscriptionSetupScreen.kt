@@ -58,6 +58,17 @@ fun SubscriptionSetupScreen(
     }
     val canProceed = result != null && result!!.servers.isNotEmpty()
 
+    // Вход в уже существующую подписку по subId / Telegram ID (через backend).
+    var showLinkExisting by remember { mutableStateOf(false) }
+    if (showLinkExisting) {
+        LinkExistingSubscriptionScreen(
+            store = settingsStore,
+            onDone = onFinish,
+            onBack = { showLinkExisting = false },
+        )
+        return
+    }
+
     fun loadSubscription() {
         if (url.isBlank() || isLoading) return
         // Разрешены только ссылки от skypath.fun
@@ -255,6 +266,17 @@ fun SubscriptionSetupScreen(
                 } else {
                     Text("Загрузить серверы", fontWeight = FontWeight.SemiBold)
                 }
+            }
+
+            // ── Вход в существующую подписку по subId / Telegram ID ───────────
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { showLinkExisting = true }) {
+                Text(
+                    "У меня уже есть подписка — войти по ID",
+                    color = SkyflowColors.AccentLight,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
             }
 
             // ── Wrong-domain banner ───────────────────────────────────────────

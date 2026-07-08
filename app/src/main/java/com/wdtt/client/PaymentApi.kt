@@ -81,6 +81,25 @@ class PaymentApi(
             )
         }
 
+    /**
+     * Вход в существующую подписку по идентификатору ([type] = "subid" | "telegram_id").
+     * Backend ищет клиента в 3X-UI и, если найден, возвращает `sub_url` + `expire_at`.
+     * Возвращает null, если подписка не найдена.
+     */
+    suspend fun linkExisting(type: String, value: String): RemoteSubscription? =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject().put("type", type).put("value", value).toString()
+            val json = request("POST", "/api/app/link", body, "linkExisting")
+            if (!json.optBoolean("found", false)) return@withContext null
+            val subUrl = json.optString("sub_url")
+            if (subUrl.isBlank()) return@withContext null
+            RemoteSubscription(
+                active = true,
+                subUrl = subUrl,
+                expireAt = json.optLong("expire_at", 0L),
+            )
+        }
+
     private fun parseState(raw: String): PaymentState = when (raw.trim().lowercase()) {
         "succeeded", "success", "paid", "confirmed", "completed" -> PaymentState.SUCCEEDED
         "cancelled", "canceled", "failed", "expired", "rejected" -> PaymentState.CANCELLED
