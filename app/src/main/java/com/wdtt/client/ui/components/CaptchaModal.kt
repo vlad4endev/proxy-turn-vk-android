@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -138,6 +139,17 @@ fun CaptchaModal(
         TunnelManager.onCaptchaTimeout()
     }
 
+    // Видимый отсчёт (только индикация — реальный таймаут ведётся выше отдельно).
+    var secondsLeft by remember { mutableIntStateOf((CAPTCHA_MODAL_TIMEOUT_MS / 1000L).toInt()) }
+    LaunchedEffect(isVisible) {
+        if (!isVisible) return@LaunchedEffect
+        secondsLeft = (CAPTCHA_MODAL_TIMEOUT_MS / 1000L).toInt()
+        while (secondsLeft > 0) {
+            kotlinx.coroutines.delay(1000L)
+            secondsLeft -= 1
+        }
+    }
+
     fun scheduleRetry(errorDescription: String) {
         if (retryAttempt >= CAPTCHA_RETRY_DELAYS_MS.size) {
             mainHandler.post {
@@ -216,21 +228,28 @@ fun CaptchaModal(
                         .padding(horizontal = 20.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Status dot
+                    // Status badge
+                    val badgeColor = if (isLoading) SkyflowColors.Connecting
+                        else if (loadError != null) SkyflowColors.ErrorColor
+                        else SkyflowColors.Connected
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(
-                                if (isLoading) SkyflowColors.Connecting
-                                else if (loadError != null) SkyflowColors.ErrorColor
-                                else SkyflowColors.Connected
-                            )
-                    )
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(badgeColor.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.VerifiedUser,
+                            contentDescription = null,
+                            tint = badgeColor,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
                     Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Проверка VK",
+                            "Быстрая проверка",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = SkyflowColors.TextPrimary
@@ -240,7 +259,7 @@ fun CaptchaModal(
                                 isLoading && loadError != null -> loadError!!
                                 isLoading -> "Загрузка капчи…"
                                 loadError != null -> loadError!!
-                                else -> "Пройдите проверку — подключение продолжится автоматически"
+                                else -> "VK просит подтвердить, что вы не робот"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = SkyflowColors.TextMuted,
@@ -285,6 +304,28 @@ fun CaptchaModal(
                     modifier = Modifier.padding(horizontal = 20.dp),
                     color = SkyflowColors.Border.copy(alpha = 0.5f)
                 )
+
+                // ── Таймаут + запасной способ ────────────────────────────────
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Автопроверка · ${secondsLeft}с",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = SkyflowColors.TextMuted,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "Другой способ",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = SkyflowColors.AccentLight,
+                        modifier = Modifier.clickable { TunnelManager.onCaptchaTimeout() },
+                    )
+                }
 
                 // ── WebView area ──────────────────────────────────────────────
                 // Выше 300dp: чекбокс-капча VK не влезала и клик мог не попадать.
