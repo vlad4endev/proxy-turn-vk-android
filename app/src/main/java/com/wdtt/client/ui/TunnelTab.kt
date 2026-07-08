@@ -42,8 +42,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -105,7 +113,7 @@ private val Peer = "${ServerConfig.HOST}:${ServerConfig.PORT}"
 
 private data class ServiceStatus(
     val name: String,
-    val emoji: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val iconBg: Color,
     val host: String,
     val pingMs: Int = -1,
@@ -167,11 +175,11 @@ fun TunnelTab() {
     var modesExpanded by rememberSaveable { mutableStateOf(false) }
     var services by remember {
         mutableStateOf(listOf(
-            ServiceStatus("YouTube",   "▶", SkyflowColors.SurfaceHigh, "youtube.com"),
-            ServiceStatus("Telegram",  "✈", SkyflowColors.SurfaceHigh, "t.me"),
-            ServiceStatus("Instagram", "📷", SkyflowColors.SurfaceHigh, "instagram.com"),
-            ServiceStatus("WhatsApp",  "💬", SkyflowColors.SurfaceHigh, "whatsapp.com"),
-            ServiceStatus("TikTok",    "🎵", SkyflowColors.SurfaceHigh, "tiktok.com"),
+            ServiceStatus("YouTube",   Icons.Filled.PlayArrow,   SkyflowColors.SurfaceHigh, "youtube.com"),
+            ServiceStatus("Telegram",  Icons.Filled.Send,        SkyflowColors.SurfaceHigh, "t.me"),
+            ServiceStatus("Instagram", Icons.Filled.PhotoCamera, SkyflowColors.SurfaceHigh, "instagram.com"),
+            ServiceStatus("WhatsApp",  Icons.Filled.Chat,        SkyflowColors.SurfaceHigh, "whatsapp.com"),
+            ServiceStatus("TikTok",    Icons.Filled.MusicNote,   SkyflowColors.SurfaceHigh, "tiktok.com"),
         ))
     }
     var linkProvider by remember { mutableStateOf(LinkProvider.UNKNOWN) }
@@ -308,7 +316,7 @@ fun TunnelTab() {
     val autoBtnText = when {
         isCreatingLink -> "Создание..."
         vkLink.isNotBlank() -> "Создана · обновить"
-        else -> "⚡ Создать автоматически"
+        else -> "Создать автоматически"
     }
     val autoBtnTextColor = when {
         isCreatingLink -> SkyflowColors.Accent
@@ -590,7 +598,12 @@ fun TunnelTab() {
                         verticalAlignment     = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(if (accessExpired) "⛔" else "🔒", fontSize = 18.sp)
+                        Icon(
+                            if (accessExpired) Icons.Filled.ErrorOutline else Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = SkyflowColors.ErrorColor,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Column {
                             Text(
                                 if (accessExpired) "Пробный период закончился"
@@ -622,7 +635,9 @@ fun TunnelTab() {
                             ),
                             shape    = SkyflowShapes.Chip
                         ) {
-                            Text("✈  Оплатить через Telegram", fontWeight = FontWeight.SemiBold)
+                            Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Оплатить через Telegram", fontWeight = FontWeight.SemiBold)
                         }
                     } else {
                         OutlinedButton(
@@ -993,7 +1008,16 @@ fun TunnelTab() {
                                         modifier = Modifier.weight(1f)
                                     )
                                     if (linkStatus == LinkStatus.ACTIVE) {
-                                        Text("✓ Готова", fontSize = readableSp(12f), color = SkyflowColors.Connected)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = SkyflowColors.Connected,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(Modifier.width(3.dp))
+                                            Text("Готова", fontSize = readableSp(12f), color = SkyflowColors.Connected)
+                                        }
                                     }
                                 }
                             }
@@ -1207,7 +1231,12 @@ fun TunnelTab() {
                                                 .background(svc.iconBg),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text(svc.emoji, fontSize = 11.sp)
+                                            Icon(
+                                                svc.icon,
+                                                contentDescription = null,
+                                                tint = SkyflowColors.TextSecondary,
+                                                modifier = Modifier.size(13.dp)
+                                            )
                                         }
                                         Text(
                                             svc.name,

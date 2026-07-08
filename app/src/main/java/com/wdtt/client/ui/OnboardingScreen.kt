@@ -643,10 +643,10 @@ private fun OnboardingPage3() {
     ) {
         SetupPermissionCard(
             emoji = "🔒",
-            title = "SKYFLOW M хочет\nсоздать VPN",
-            body = "Приложение будет\nперехватывать трафик",
-            allowLabel = "✓  Разрешить",
-            hint = "⚠  Нажми «Разрешить» — это нужно\nдля работы защиты",
+            title = "Разрешите SKYFLOW\nзащищать соединение",
+            body = "Это нужно, чтобы включить\nзащищённое подключение",
+            allowLabel = "Разрешить",
+            hint = "Нажмите «Разрешить» — без этого\nзащита не заработает",
         )
 
         Spacer(Modifier.height(32.dp))
