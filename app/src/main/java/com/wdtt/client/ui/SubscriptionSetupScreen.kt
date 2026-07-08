@@ -71,14 +71,8 @@ fun SubscriptionSetupScreen(
 
     fun loadSubscription() {
         if (url.isBlank() || isLoading) return
-        // Разрешены только ссылки от skypath.fun
-        val host = try { java.net.URL(url.trim()).host.lowercase() } catch (_: Exception) { "" }
-        val isAllowed = host == "skypath.fun" || host.endsWith(".skypath.fun")
-        if (!isAllowed) {
-            isWrongDomain = true
-            errorMsg = null
-            return
-        }
+        // Принимаем любую валидную http(s)-ссылку подписки (3X-UI/провайдер),
+        // не только skypath.fun — иначе легитимные ссылки давали ложную ошибку.
         isWrongDomain = false
         scope.launch {
             isLoading = true

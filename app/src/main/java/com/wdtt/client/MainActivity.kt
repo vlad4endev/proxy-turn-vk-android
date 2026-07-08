@@ -149,13 +149,17 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
-                        !subscriptionSetupDone -> {
-                            SubscriptionSetupScreen(
-                                settingsStore = settingsStore,
-                                onFinish      = { /* setSubscriptionSetupDone called inside the screen */ }
-                            )
-                        }
                         else -> {
+                            // Первый вход: НЕ требуем подписку — стартуем 10-дневный пробный
+                            // период и пускаем сразу в приложение. Экран подписки доступен
+                            // внутри приложения (чип/кнопка), а не как обязательный гейт.
+                            LaunchedEffect(Unit) {
+                                if (settingsStore.getSubExpireAt() <= 0L) {
+                                    AccessManager(settingsStore)
+                                        .ensureTrialStarted(System.currentTimeMillis() / 1000L)
+                                }
+                                if (!subscriptionSetupDone) settingsStore.setSubscriptionSetupDone()
+                            }
                             MainScreen(
                                 settingsStore = settingsStore,
                                 themeMode = themeMode,
