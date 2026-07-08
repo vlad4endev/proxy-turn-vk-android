@@ -121,6 +121,10 @@ class SettingsStore(context: Context) {
         private val SUB_ANNOUNCE   = stringPreferencesKey("sub_announce")
         private val XRAY_ROUTING_MODE = stringPreferencesKey("xray_routing_mode")
 
+        // ── Триал / device-auth (см. BillingConfig, AccessManager, PaymentApi) ──
+        private val TRIAL_START_AT = longPreferencesKey("trial_start_at")
+        private val DEVICE_ID      = stringPreferencesKey("device_id")
+
         private fun <T> getProfileKey(baseKey: Preferences.Key<T>, profile: Int): Preferences.Key<T> {
             if (profile == 0) return baseKey
             val newName = "${baseKey.name}_$profile"
@@ -667,6 +671,22 @@ class SettingsStore(context: Context) {
 
     suspend fun saveSubExpireAt(timestamp: Long) {
         dataStore.edit { prefs -> prefs[SUB_EXPIRE_AT] = timestamp }
+    }
+
+    // ── Триал / device-auth ───────────────────────────────────────────────────
+    /** Unix-секунды старта пробного периода; 0 = ещё не начат. */
+    fun getTrialStartAt(): Long = runBlocking { dataStore.data.first()[TRIAL_START_AT] ?: 0L }
+    suspend fun saveTrialStartAt(timestamp: Long) {
+        dataStore.edit { prefs -> prefs[TRIAL_START_AT] = timestamp }
+    }
+
+    /** Стабильный анонимный идентификатор устройства для device-auth (создаётся один раз). */
+    fun getOrCreateDeviceId(): String = runBlocking {
+        dataStore.data.first()[DEVICE_ID] ?: run {
+            val id = java.util.UUID.randomUUID().toString()
+            dataStore.edit { prefs -> prefs[DEVICE_ID] = id }
+            id
+        }
     }
 
     fun getSubTitle(): String = runBlocking { dataStore.data.first()[SUB_TITLE] ?: "" }
