@@ -47,7 +47,7 @@ var (
 	reCaptchaDebugInfo  = regexp.MustCompile(`debug_info:(?:[^"]*\|\|)?"([a-fA-F0-9]{64})"`)
 	reCaptchaVersion    = regexp.MustCompile(`vkid/([0-9.]*)/not_robot_captcha\.js`)
 
-	errCaptchaRateLimit = errors.New("captcha session rate limit reached")
+	ErrCaptchaRateLimit = errors.New("captcha session rate limit reached")
 	errCaptchaBot       = errors.New("captcha bot challenge")
 
 	captchaMaxAttempts = 2
@@ -159,7 +159,7 @@ func (s *captchaSession) solveWithMaxAttempts(captchaErr *Error, streamID int, m
 			return token, nil
 		}
 		l.Warnf("[STREAM %d] [Captcha] solve attempt %d failed: %v", streamID, attempt, solveErr)
-		if errors.Is(solveErr, errCaptchaRateLimit) {
+		if errors.Is(solveErr, ErrCaptchaRateLimit) {
 			return "", solveErr
 		}
 
@@ -497,7 +497,7 @@ func (s *captchaSession) solveCheckboxCaptcha(
 		return "", &captchaShowTypeError{ShowType: check.ShowType}
 	}
 	if strings.EqualFold(check.Status, "error_limit") {
-		return "", errCaptchaRateLimit
+		return "", ErrCaptchaRateLimit
 	}
 	if strings.EqualFold(check.Status, "bot") {
 		return "", fmt.Errorf("%w: checkbox captcha rejected: status=%s", errCaptchaBot, check.Status)

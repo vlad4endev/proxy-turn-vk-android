@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	captchaAutoWebViewTimeout     = 10 * time.Second
+	// 30с (было 10с): авто-WebView вызывается ОДИН раз, поэтому даём Android
+	// достаточно времени на решение вместо серии быстрых таймаутов/само-отмен.
+	captchaAutoWebViewTimeout     = 30 * time.Second
 	captchaManualWebViewTimeout   = 60 * time.Second
 	captchaSelectedWebViewTimeout = 120 * time.Second
 )
