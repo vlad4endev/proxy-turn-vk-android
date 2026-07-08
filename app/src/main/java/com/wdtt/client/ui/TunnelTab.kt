@@ -1485,6 +1485,7 @@ private fun ModePill(
             Spacer(Modifier.width(6.dp))
             Text(
                 label,
+                fontFamily = displayFontFamily,
                 fontSize = readableSp(13f),
                 fontWeight = FontWeight.SemiBold,
                 color = fg,
@@ -1642,6 +1643,8 @@ private fun StatusLabel(
         Text(
             text,
             style = MaterialTheme.typography.headlineMedium,
+            fontFamily = displayFontFamily,
+            fontWeight = FontWeight.SemiBold,
             color = color,
         )
         if (isConnected) {

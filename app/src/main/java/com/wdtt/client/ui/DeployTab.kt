@@ -35,7 +35,6 @@ import com.jcraft.jsch.Session
 import com.wdtt.client.DeployManager
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
-import com.wdtt.client.WDTTColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -355,19 +354,19 @@ fun DeployTab() {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                color = WDTTColors.connected.copy(alpha = 0.12f),
+                color = SkyflowColors.Connected.copy(alpha = 0.12f),
                 contentColor = MaterialTheme.colorScheme.onSurface,
-                border = BorderStroke(1.dp, WDTTColors.connected.copy(alpha = 0.4f))
+                border = BorderStroke(1.dp, SkyflowColors.Connected.copy(alpha = 0.4f))
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = WDTTColors.connected)
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SkyflowColors.Connected)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = "Деплой успешно завершен ($successCountdown)",
-                        color = WDTTColors.connected,
+                        color = SkyflowColors.Connected,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.bodyMedium
                     )

@@ -194,7 +194,7 @@ fun SubscriptionSetupScreen(
             Text(
                 "Подписка",
                 fontSize   = 24.sp,
-                fontFamily = interFontFamily,
+                fontFamily = displayFontFamily,
                 fontWeight = FontWeight.Bold,
                 color      = SkyflowColors.TextPrimary,
             )
@@ -520,7 +520,7 @@ private fun AccessStatusCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         titleText,
-                        fontFamily = interFontFamily,
+                        fontFamily = displayFontFamily,
                         fontWeight = FontWeight.SemiBold,
                         fontSize   = 15.sp,
                         color      = SkyflowColors.TextPrimary,
@@ -545,7 +545,7 @@ private fun AccessStatusCard(
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
                                 "$daysLeft",
-                                fontFamily = interFontFamily,
+                                fontFamily = displayFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize   = 34.sp,
                                 color      = accentColor,
@@ -562,7 +562,7 @@ private fun AccessStatusCard(
                     } else {
                         Text(
                             "Активна",
-                            fontFamily = interFontFamily,
+                            fontFamily = displayFontFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize   = 20.sp,
                             color      = accentColor,

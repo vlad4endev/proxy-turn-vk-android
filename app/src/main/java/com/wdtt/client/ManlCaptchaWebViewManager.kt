@@ -430,7 +430,7 @@ class ManlCaptchaActivity : ComponentActivity() {
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .padding(bottom = 24.dp),
-                            color = Color(0xFF6366F1),
+                            color = com.wdtt.client.ui.SkyflowColors.AccentLight,
                             fontSize = 13.sp
                         )
                     }

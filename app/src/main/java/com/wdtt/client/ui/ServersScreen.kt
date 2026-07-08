@@ -1173,9 +1173,9 @@ private fun ServerCard(
                         server.latency > 0 -> Text(
                             "${server.latency}ms",
                             color      = when {
-                                server.latency < 100 -> Color(0xFF4CAF50)
-                                server.latency < 300 -> Color(0xFFFFC107)
-                                else                 -> Color(0xFFF44336)
+                                server.latency < 100 -> SkyflowColors.Connected
+                                server.latency < 300 -> SkyflowColors.WarnColor
+                                else                 -> SkyflowColors.ErrorColor
                             },
                             style      = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold

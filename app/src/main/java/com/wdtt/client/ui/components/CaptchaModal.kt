@@ -40,6 +40,7 @@ import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.ui.SkyflowColors
 import com.wdtt.client.ui.SkyflowShapes
+import com.wdtt.client.ui.displayFontFamily
 
 // localhost (не 127.0.0.1), чтобы origin WebView совпадал с origin, который
 // использует инъекция Go-прокси (localhost:8765) — иначе fetch/worker капчи
@@ -251,6 +252,7 @@ fun CaptchaModal(
                         Text(
                             "Быстрая проверка",
                             style = MaterialTheme.typography.titleSmall,
+                            fontFamily = displayFontFamily,
                             fontWeight = FontWeight.SemiBold,
                             color = SkyflowColors.TextPrimary
                         )

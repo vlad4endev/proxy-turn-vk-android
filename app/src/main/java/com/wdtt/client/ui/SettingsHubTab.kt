@@ -73,7 +73,7 @@ fun SettingsHubTab(onUpdateFound: (com.wdtt.client.AppReleaseInfo) -> Unit = {})
             ) {
                 Text(
                     "Настройки",
-                    fontFamily = interFontFamily,
+                    fontFamily = displayFontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp,
                     color = SkyflowColors.TextPrimary,

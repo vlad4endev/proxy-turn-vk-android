@@ -547,7 +547,7 @@ private fun ProxyNavigationBar(
                                 )
                                 if (item.id == 3 && unreadErrors > 0) {
                                     Badge(
-                                        containerColor = if (tunnelRunning) SkyflowColors.Accent else WDTTColors.warning,
+                                        containerColor = if (tunnelRunning) SkyflowColors.Accent else SkyflowColors.WarnColor,
                                         contentColor = SkyflowColors.OnAccent,
                                         modifier = Modifier.offset(x = 12.dp, y = (-8).dp)
                                     ) {
@@ -631,7 +631,7 @@ private fun AppBackdrop(modifier: Modifier = Modifier) {
     )
     val leftGlow = Brush.radialGradient(
         colors = listOf(
-            Color(0xFF6366F1).copy(alpha = if (isDark) 0.10f else 0.08f),
+            SkyflowColors.AccentLight.copy(alpha = if (isDark) 0.10f else 0.08f),
             Color.Transparent
         )
     )
