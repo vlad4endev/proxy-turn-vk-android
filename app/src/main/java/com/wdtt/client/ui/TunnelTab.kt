@@ -40,8 +40,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1261,172 +1263,94 @@ private fun TunnelModeSwitch(
     onAutoSwitchChange: (Boolean) -> Unit,
 ) {
     val isSpeed = selectedMode == "speed"
-    val autoHint = when (networkTransport) {
-        NetworkTransport.WIFI -> "Wi‑Fi → скорость"
-        NetworkTransport.CELLULAR -> "LTE → маскировка"
-        NetworkTransport.UNKNOWN -> "Wi‑Fi → скорость, LTE → маскировка"
+    val hint = when {
+        !enabled -> "Режим меняется до подключения"
+        manualOverride && autoSwitchEnabled -> "Выбрано вручную · авто вернётся при смене сети"
+        autoSwitchEnabled && networkTransport == NetworkTransport.WIFI -> "Авто · Wi‑Fi → скорость"
+        autoSwitchEnabled && networkTransport == NetworkTransport.CELLULAR -> "Авто · LTE → маскировка"
+        autoSwitchEnabled -> "Авто · по типу сети"
+        isSpeed -> "Максимально быстрое соединение"
+        else -> "Незаметно · обходит блокировки"
     }
-    val currentModeLabel = if (isSpeed) "Скорость" else "Маскировка"
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        animationSpec = tween(250),
-        label = "modes_chevron"
-    )
+    val hintColor = if (manualOverride && autoSwitchEnabled) SkyflowColors.WarnColor else SkyflowColors.TextMuted
 
-    Surface(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (enabled || autoSwitchEnabled) 1f else 0.5f),
-        shape = SkyflowShapes.Card,
-        color = SkyflowColors.GlassSurface,
-        border = SkyflowBorders.Glass
+            .alpha(if (enabled || autoSwitchEnabled) 1f else 0.6f),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column {
-            // Always-visible header row
+        // Компактный сегментированный переключатель режимов (всегда на виду).
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = SkyflowShapes.Card,
+            color = SkyflowColors.GlassSurface,
+            border = SkyflowBorders.Glass,
+        ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onExpandedChange(!expanded) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    currentModeLabel,
-                    fontSize = readableSp(13f),
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isSpeed) SkyflowColors.Connected else SkyflowColors.AccentLight,
+                ModePill(
+                    label = "Маскировка",
+                    icon = Icons.Outlined.VisibilityOff,
+                    selected = !isSpeed,
+                    enabled = enabled,
+                    accentColor = SkyflowColors.Accent,
                     modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    onClick = { onModeChange("whitelist") },
                 )
-                if (autoSwitchEnabled) {
-                    Surface(
-                        shape = SkyflowShapes.LogEntry,
-                        color = SkyflowColors.AccentMuted,
-                        border = BorderStroke(0.5.dp, SkyflowColors.Accent.copy(alpha = 0.3f))
-                    ) {
-                        Text(
-                            "Авто",
-                            fontSize = readableSp(10f),
-                            fontWeight = FontWeight.SemiBold,
-                            color = SkyflowColors.AccentLight,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                }
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = SkyflowColors.TextMuted,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .graphicsLayer { rotationZ = chevronRotation }
+                ModePill(
+                    label = "Скорость",
+                    icon = Icons.Filled.Bolt,
+                    selected = isSpeed,
+                    enabled = enabled,
+                    accentColor = SkyflowColors.Connected,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChange("speed") },
                 )
             }
+        }
 
-            // Expandable content
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(tween(250)) + fadeIn(tween(250)),
-                exit = shrinkVertically(tween(200)) + fadeOut(tween(150))
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    HorizontalDivider(color = SkyflowColors.Border, thickness = 0.5.dp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "РЕЖИМ ПОДКЛЮЧЕНИЯ",
-                            style = SkyflowTextStyles.labelUppercase,
-                            color = SkyflowColors.TextMuted
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                "Авто",
-                                fontSize = readableSp(10f),
-                                color = if (autoSwitchEnabled) SkyflowColors.AccentLight else SkyflowColors.TextMuted
-                            )
-                            Switch(
-                                checked = autoSwitchEnabled,
-                                onCheckedChange = onAutoSwitchChange,
-                                modifier = Modifier.height(24.dp),
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = SkyflowColors.Connected,
-                                    checkedTrackColor = SkyflowColors.Connected.copy(alpha = 0.35f),
-                                    uncheckedThumbColor = SkyflowColors.TextMuted,
-                                    uncheckedTrackColor = SkyflowColors.Border
-                                )
-                            )
-                        }
-                    }
-                    if (autoSwitchEnabled) {
-                        Text(
-                            "Авто: $autoHint",
-                            fontSize = readableSp(10f),
-                            color = SkyflowColors.TextSecondary,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    if (manualOverride && autoSwitchEnabled) {
-                        Text(
-                            "Выбрано вручную — авто снова при смене Wi‑Fi/LTE",
-                            fontSize = readableSp(10f),
-                            color = SkyflowColors.WarnColor,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TunnelModeOption(
-                            label = "Маскировка",
-                            subtitle = "Незаметно, обходит блокировки",
-                            selected = !isSpeed,
-                            enabled = enabled,
-                            accentColor = SkyflowColors.AccentLight,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onModeChange("whitelist") }
-                        )
-                        TunnelModeOption(
-                            label = "Скорость",
-                            subtitle = "Максимально быстро",
-                            selected = isSpeed,
-                            enabled = enabled,
-                            accentColor = SkyflowColors.Connected,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onModeChange("speed") }
-                        )
-                    }
-                    if (!enabled) {
-                        Text(
-                            "Смена режима доступна после отключения",
-                            fontSize = readableSp(10f),
-                            color = SkyflowColors.TextMuted,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                hint,
+                fontSize = readableSp(11f),
+                color = hintColor,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "Авто",
+                fontSize = readableSp(11f),
+                color = if (autoSwitchEnabled) SkyflowColors.AccentLight else SkyflowColors.TextMuted,
+            )
+            Spacer(Modifier.width(6.dp))
+            Switch(
+                checked = autoSwitchEnabled,
+                onCheckedChange = onAutoSwitchChange,
+                modifier = Modifier.height(24.dp),
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SkyflowColors.Connected,
+                    checkedTrackColor = SkyflowColors.Connected.copy(alpha = 0.35f),
+                    uncheckedThumbColor = SkyflowColors.TextMuted,
+                    uncheckedTrackColor = SkyflowColors.Border,
+                ),
+            )
         }
     }
 }
 
 @Composable
-private fun TunnelModeOption(
+private fun ModePill(
     label: String,
-    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     selected: Boolean,
     enabled: Boolean,
     accentColor: Color,
@@ -1434,41 +1358,36 @@ private fun TunnelModeOption(
     onClick: () -> Unit,
 ) {
     val bg by animateColorAsState(
-        if (selected) accentColor.copy(alpha = 0.18f) else SkyflowColors.GlassSurfaceElevated,
-        label = "mode_opt_bg"
+        if (selected) accentColor else Color.Transparent,
+        label = "mode_pill_bg"
     )
-    val borderColor by animateColorAsState(
-        if (selected) accentColor.copy(alpha = 0.55f) else SkyflowColors.Border,
-        label = "mode_opt_border"
-    )
+    val fg = if (selected) SkyflowColors.OnAccent else SkyflowColors.TextSecondary
     Surface(
-        modifier = modifier,
+        modifier = modifier.height(46.dp),
         shape = SkyflowShapes.Chip,
         color = bg,
-        border = BorderStroke(if (selected) 1.dp else 0.5.dp, borderColor),
         onClick = { if (enabled) onClick() },
         enabled = enabled,
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = fg,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(6.dp))
             Text(
                 label,
-                fontSize = readableSp(11f),
-                fontWeight = FontWeight.Bold,
-                color = if (selected) accentColor else SkyflowColors.TextSecondary,
-                textAlign = TextAlign.Center,
+                fontSize = readableSp(13f),
+                fontWeight = FontWeight.SemiBold,
+                color = fg,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                subtitle,
-                fontSize = readableSp(9f),
-                color = SkyflowColors.TextMuted,
-                textAlign = TextAlign.Center,
-                maxLines = 1
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
