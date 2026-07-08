@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.wdtt.client.AccessManager
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.xray.SubscriptionParser
 import com.wdtt.client.xray.SubscriptionResult
@@ -310,7 +311,7 @@ fun SubscriptionSetupScreen(
                                     )
                                 ) {
                                     Text(
-                                        "300 ₽ / месяц",
+                                        "${com.wdtt.client.BillingConfig.SUB_PRICE_RUB} ₽ / месяц",
                                         fontFamily  = interFontFamily,
                                         fontWeight  = FontWeight.Bold,
                                         fontSize    = 14.sp,
@@ -454,6 +455,27 @@ fun SubscriptionSetupScreen(
                         textAlign  = TextAlign.Center,
                     )
                 }
+            }
+
+            // ── Начать бесплатно (пробный период) ─────────────────────────────
+            Spacer(Modifier.height(10.dp))
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        AccessManager(settingsStore).ensureTrialStarted(System.currentTimeMillis() / 1000L)
+                        settingsStore.setSubscriptionSetupDone()
+                        onFinish()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "Начать бесплатно · ${com.wdtt.client.BillingConfig.TRIAL_DAYS} дней",
+                    fontFamily = interFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize   = 15.sp,
+                    color      = SkyflowColors.AccentLight,
+                )
             }
         }
     }
