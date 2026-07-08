@@ -25,6 +25,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -540,6 +541,15 @@ fun TunnelTab() {
             elapsedSec = elapsedSec,
             hint = connectionHint,
         )
+
+        // ── Живой прогресс подключения (только маскировка) ────────────────
+        AnimatedVisibility(
+            visible = isConnecting && !isSpeedMode,
+            enter   = fadeIn(tween(200)) + expandVertically(tween(200)),
+            exit    = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+        ) {
+            ConnectingStageChips(stage = connectionStage, activeWorkers = activeWorkers)
+        }
 
         // ── Статус пробного периода ───────────────────────────────────────
         AnimatedVisibility(
@@ -1647,6 +1657,59 @@ private fun StatusLabel(
                 style = MaterialTheme.typography.bodySmall,
                 color = SkyflowColors.TextMuted,
                 textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+/**
+ * Живые шаги подключения (маскировка): Авторизация → Облачный релей → Сервер.
+ * Использует уже существующие сигналы состояния — без новых источников данных.
+ */
+@Composable
+private fun ConnectingStageChips(stage: ConnectionStage, activeWorkers: Int) {
+    val authDone   = stage == ConnectionStage.SERVER_DTLS || stage == ConnectionStage.VPN_READY
+    val relayDone  = activeWorkers > 0 || stage == ConnectionStage.VPN_READY
+    val serverDone = stage == ConnectionStage.VPN_READY
+
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        StageChip("Авторизация", authDone)
+        StageChip("Облачный релей", relayDone)
+        StageChip("Сервер", serverDone)
+    }
+}
+
+@Composable
+private fun StageChip(label: String, done: Boolean) {
+    Surface(
+        shape  = SkyflowShapes.Chip,
+        color  = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (done) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = SkyflowColors.Connected,
+                    modifier = Modifier.size(12.dp),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .border(1.dp, SkyflowColors.TextMuted, CircleShape),
+                )
+            }
+            Text(
+                label,
+                fontSize = readableSp(10f),
+                color = if (done) SkyflowColors.TextPrimary else SkyflowColors.TextMuted,
             )
         }
     }

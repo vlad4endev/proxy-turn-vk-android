@@ -27,12 +27,10 @@ import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VpnKey
-import androidx.compose.material.icons.outlined.FilterList
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.*
@@ -58,11 +56,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import com.wdtt.client.ui.AppUpdateDialog
 import com.wdtt.client.ui.AdaptiveContentHost
-import com.wdtt.client.ui.ExceptionsTab
 import com.wdtt.client.ui.FloatingToolbar
-import com.wdtt.client.ui.InfoTab
 import com.wdtt.client.ui.LogsTab
 import com.wdtt.client.ui.OnboardingScreen
+import com.wdtt.client.ui.SettingsHubTab
 import com.wdtt.client.ui.SetupPermissionsScreen
 import com.wdtt.client.ui.SubscriptionSetupScreen
 import com.wdtt.client.ui.ResponsiveLayout
@@ -185,10 +182,9 @@ private data class NavItem(
 )
 
 private val navItems = listOf(
-    NavItem(0, "Туннель", Icons.Filled.VpnKey, Icons.Outlined.VpnKey),
-    NavItem(2, "Исключ.", Icons.Filled.FilterList, Icons.Outlined.FilterList),
-    NavItem(3, "Логи", Icons.Filled.Terminal, Icons.Outlined.Terminal),
-    NavItem(4, "Инфо", Icons.Filled.Info, Icons.Outlined.Info),
+    NavItem(0, "Главная", Icons.Filled.VpnKey, Icons.Outlined.VpnKey),
+    NavItem(3, "Активность", Icons.Filled.Terminal, Icons.Outlined.Terminal),
+    NavItem(4, "Настройки", Icons.Filled.Settings, Icons.Outlined.Settings),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -344,9 +340,8 @@ fun MainScreen(
                     AdaptiveContentHost {
                         when (tab) {
                             0 -> TunnelTab()
-                            2 -> ExceptionsTab()
                             3 -> LogsTab()
-                            4 -> InfoTab(onUpdateFound = { release ->
+                            4 -> SettingsHubTab(onUpdateFound = { release ->
                                 pendingRelease = release
                             })
                             else -> TunnelTab()
