@@ -182,18 +182,35 @@ fun TunnelTab() {
     val isSubMode = remember { store.getVlessInputMode() == "subscription" }
     var subExpireAt  by remember { mutableLongStateOf(store.getSubExpireAt()) }
     var hasServers   by remember { mutableStateOf(store.loadServers().isNotEmpty()) }
+    var trialStartAt by remember { mutableLongStateOf(store.getTrialStartAt()) }
     val isSubExpired by remember {
         derivedStateOf {
             subExpireAt > 0L && subExpireAt < System.currentTimeMillis() / 1000L
         }
     }
+    // Доступ: платная подписка (subExpireAt) ИЛИ локальный пробный период (trialStartAt).
+    val isPaidActive by remember { derivedStateOf { subExpireAt > System.currentTimeMillis() / 1000L } }
+    val trialDaysLeft by remember {
+        derivedStateOf {
+            val now = System.currentTimeMillis() / 1000L
+            val end = trialStartAt + com.wdtt.client.BillingConfig.TRIAL_DAYS * 86_400L
+            if (trialStartAt > 0L && end > now) (((end - now) + 86_399L) / 86_400L).toInt() else 0
+        }
+    }
+    val isTrialActive by remember { derivedStateOf { !isPaidActive && trialDaysLeft > 0 } }
+    val accessExpired by remember { derivedStateOf { !isPaidActive && !isTrialActive } }
+    // «Скорость» = VLESS: нужны серверы и не истёкшая подписка.
+    val speedAvailable by remember { derivedStateOf { hasServers && !isSubExpired } }
+    // «Маскировка» (VK→TURN→WG) работает при любом активном доступе — VLESS не нужен.
+    val maskingAvailable by remember { derivedStateOf { !accessExpired } }
     val isVlessBlocked by remember { derivedStateOf { !hasServers || isSubExpired } }
     // Re-read every 30s — auto-unlocks after payment + subscription refresh
     LaunchedEffect(Unit) {
         while (true) {
             delay(30_000L)
-            subExpireAt = store.getSubExpireAt()
-            hasServers  = store.loadServers().isNotEmpty()
+            subExpireAt  = store.getSubExpireAt()
+            hasServers   = store.loadServers().isNotEmpty()
+            trialStartAt = store.getTrialStartAt()
         }
     }
 
@@ -240,8 +257,8 @@ fun TunnelTab() {
     }
     val vkHash = remember(vkLink) { parseVkHash(vkLink) }
     val powerEnabled = tunnelRunning || isStarting ||
-        (!isVlessBlocked && isSpeedMode) ||
-        (!isVlessBlocked && vkLink.isNotBlank() && vkHash.isNotBlank())
+        (isSpeedMode && speedAvailable) ||
+        (!isSpeedMode && maskingAvailable && vkLink.isNotBlank() && vkHash.isNotBlank())
 
     LaunchedEffect(tunnelRunning, activeWorkers, connectionStage, isSpeedMode) {
         when {
@@ -397,15 +414,20 @@ fun TunnelTab() {
         }
     }
 
+    val openBuy: () -> Unit = {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+
     val onPowerClick: () -> Unit = {
-        if (isVlessBlocked && !tunnelRunning && !isStarting) {
-            if (isSubExpired) {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            }
-            // else: no servers — do nothing, banner with navigation is already visible
+        if (!tunnelRunning && !isStarting && isSpeedMode && !speedAvailable) {
+            // «Скорость» требует подписку/серверы (в пробном периоде недоступна без VLESS).
+            Toast.makeText(context, "Скорость доступна по подписке — оформите или войдите по ID", Toast.LENGTH_LONG).show()
+        } else if (!tunnelRunning && !isStarting && !isSpeedMode && accessExpired) {
+            Toast.makeText(context, "Пробный период закончился — оформите подписку", Toast.LENGTH_LONG).show()
+            openBuy()
         } else if (tunnelRunning || isStarting) {
             isStarting = false
             disconnectTunnel(context)
@@ -517,9 +539,43 @@ fun TunnelTab() {
             hint = connectionHint,
         )
 
+        // ── Статус пробного периода ───────────────────────────────────────
+        AnimatedVisibility(
+            visible = isTrialActive && !tunnelRunning && !isStarting,
+            enter   = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit    = fadeOut(tween(200)) + shrinkVertically(tween(200))
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = SkyflowShapes.Chip,
+                color    = SkyflowColors.AccentMuted,
+                border   = BorderStroke(0.5.dp, SkyflowColors.Accent.copy(alpha = 0.3f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Пробный период · осталось $trialDaysLeft дн.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SkyflowColors.TextPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "Оформить",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = SkyflowColors.AccentLight,
+                        modifier = Modifier.clickable { openBuy() }
+                    )
+                }
+            }
+        }
+
         // ── VLESS / subscription gate banner ──────────────────────────────
         AnimatedVisibility(
-            visible = isVlessBlocked && !tunnelRunning && !isStarting,
+            visible = !tunnelRunning && !isStarting && ((isSpeedMode && !speedAvailable) || accessExpired),
             enter   = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit    = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
@@ -540,24 +596,24 @@ fun TunnelTab() {
                         verticalAlignment     = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(if (isSubExpired) "⛔" else "🔒", fontSize = 18.sp)
+                        Text(if (accessExpired) "⛔" else "🔒", fontSize = 18.sp)
                         Column {
                             Text(
-                                if (isSubExpired) "Подписка истекла"
-                                else              "Подписка не настроена",
+                                if (accessExpired) "Пробный период закончился"
+                                else               "Скорость — по подписке",
                                 style      = MaterialTheme.typography.titleSmall,
                                 color      = SkyflowColors.ErrorColor,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                if (isSubExpired) "VPN и белый список недоступны до оплаты"
-                                else              "Настройте VLESS-подписку для работы приложения",
+                                if (accessExpired) "Оформите подписку, чтобы продолжить"
+                                else               "В пробном периоде работает Маскировка. Для Скорости оформите подписку или войдите по ID.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = SkyflowColors.TextSecondary
                             )
                         }
                     }
-                    if (isSubExpired) {
+                    if (accessExpired) {
                         Button(
                             onClick  = {
                                 context.startActivity(
