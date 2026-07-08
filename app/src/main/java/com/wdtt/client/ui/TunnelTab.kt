@@ -6,6 +6,7 @@ import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -176,6 +177,7 @@ fun TunnelTab() {
     var linkProvider by remember { mutableStateOf(LinkProvider.UNKNOWN) }
     var linkStatus by remember { mutableStateOf(LinkStatus.IDLE) }
     var showServersScreen by rememberSaveable { mutableStateOf(false) }
+    var showSubscription by rememberSaveable { mutableStateOf(false) }
     val activeSpeedServer by TunnelManager.activeSpeedServer.collectAsStateWithLifecycle()
 
     // ── Subscription / VLESS gate ─────────────────────────────────────────────
@@ -414,20 +416,12 @@ fun TunnelTab() {
         }
     }
 
-    val openBuy: () -> Unit = {
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/skypathvpn_bot"))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
-    }
-
     val onPowerClick: () -> Unit = {
         if (!tunnelRunning && !isStarting && isSpeedMode && !speedAvailable) {
-            // «Скорость» требует подписку/серверы (в пробном периоде недоступна без VLESS).
-            Toast.makeText(context, "Скорость доступна по подписке — оформите или войдите по ID", Toast.LENGTH_LONG).show()
+            // «Скорость» требует подписку/серверы — открываем экран подписки (ссылка/ID/покупка).
+            showSubscription = true
         } else if (!tunnelRunning && !isStarting && !isSpeedMode && accessExpired) {
-            Toast.makeText(context, "Пробный период закончился — оформите подписку", Toast.LENGTH_LONG).show()
-            openBuy()
+            showSubscription = true
         } else if (tunnelRunning || isStarting) {
             isStarting = false
             disconnectTunnel(context)
@@ -567,7 +561,7 @@ fun TunnelTab() {
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = SkyflowColors.AccentLight,
-                        modifier = Modifier.clickable { openBuy() }
+                        modifier = Modifier.clickable { showSubscription = true }
                     )
                 }
             }
@@ -632,7 +626,7 @@ fun TunnelTab() {
                         }
                     } else {
                         OutlinedButton(
-                            onClick  = { showServersScreen = true },
+                            onClick  = { showSubscription = true },
                             modifier = Modifier.fillMaxWidth(),
                             colors   = ButtonDefaults.outlinedButtonColors(
                                 contentColor = SkyflowColors.AccentLight
@@ -1301,6 +1295,19 @@ fun TunnelTab() {
             ServersScreen(
                 settingsStore = store,
                 onBack = { showServersScreen = false }
+            )
+        }
+
+        if (showSubscription) {
+            BackHandler { showSubscription = false }
+            SubscriptionSetupScreen(
+                settingsStore = store,
+                onFinish = {
+                    showSubscription = false
+                    subExpireAt  = store.getSubExpireAt()
+                    hasServers   = store.loadServers().isNotEmpty()
+                    trialStartAt = store.getTrialStartAt()
+                },
             )
         }
     }
