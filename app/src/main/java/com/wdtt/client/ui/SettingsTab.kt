@@ -49,7 +49,6 @@ import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.TunnelService
 import com.wdtt.client.VkHashParser
-import com.wdtt.client.WDTTColors
 import com.wdtt.client.ui.theme.AdaptiveLayout
 import com.wdtt.client.ui.theme.adaptivePadding
 import com.wdtt.client.ui.theme.adaptiveScreenInsets
