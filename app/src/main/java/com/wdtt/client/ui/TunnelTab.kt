@@ -42,6 +42,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
@@ -53,6 +55,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -124,7 +127,7 @@ enum class LinkStatus { IDLE, CHECKING, ACTIVE, DEAD, NO_NETWORK }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TunnelTab() {
+fun TunnelTab(onOpenSettings: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { SettingsStore(context) }
@@ -483,6 +486,8 @@ fun TunnelTab() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(if (metrics.isCompactHeight) 14.dp else 20.dp)
     ) {
+        BrandTopBar(onOpenSettings = onOpenSettings)
+
         if (!metrics.isVerySmall) {
             Spacer(Modifier.height(if (metrics.isCompactHeight) 4.dp else 12.dp))
         }
@@ -1068,14 +1073,28 @@ fun TunnelTab() {
             }
         }
 
-        ConnectedServerInfo(
-            isConnected = isConnected,
-            isSpeedMode = isSpeedMode,
-            speedServer = activeSpeedServer,
-            routingModeLabel = if (isSpeedMode && isConnected) {
-                com.wdtt.client.xray.XrayRoutingMode.fromKey(activeRoutingModeKey).label
-            } else null
-        )
+        if (isSpeedMode) {
+            ConnectedServerInfo(
+                isConnected = isConnected,
+                isSpeedMode = isSpeedMode,
+                speedServer = activeSpeedServer,
+                routingModeLabel = if (isConnected) {
+                    com.wdtt.client.xray.XrayRoutingMode.fromKey(activeRoutingModeKey).label
+                } else null
+            )
+        } else {
+            AnimatedVisibility(
+                visible = isConnected,
+                enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+            ) {
+                ConnectionMetricsChips(
+                    elapsedSec = elapsedSec,
+                    downSpeedMbs = downSpeedMbs,
+                    upSpeedMbs = upSpeedMbs,
+                )
+            }
+        }
 
         AnimatedVisibility(
             visible = isConnected,
@@ -1352,6 +1371,55 @@ fun TunnelTab() {
     }
 }
 
+/**
+ * Статичная шапка главного экрана: бренд + один вход в настройки. Раньше
+ * шестерёнка была свободно перетаскиваемым `FloatingToolbar` (тема/профиль),
+ * который наезжал на новый верх экрана и дублировал вкладку «Настройки» —
+ * теперь один статичный гир-icon ведёт в единственную вкладку настроек.
+ */
+@Composable
+private fun BrandTopBar(onOpenSettings: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row {
+            Text(
+                "SKY",
+                fontFamily = displayFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                letterSpacing = 1.5.sp,
+                color = SkyflowColors.TextPrimary,
+            )
+            Text(
+                "FLOW",
+                fontFamily = displayFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                letterSpacing = 1.5.sp,
+                color = SkyflowColors.AccentLight,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(SkyflowShapes.Chip)
+                .background(SkyflowColors.GlassSurface)
+                .clickable(onClick = onOpenSettings),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Settings,
+                contentDescription = "Настройки",
+                tint = SkyflowColors.TextSecondary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun TunnelModeSwitch(
     selectedMode: String,
@@ -1592,6 +1660,16 @@ private fun PowerButton(
                 val iconTop = (canvasSize.height - iconSize) / 2f
                 val cx = canvasSize.width / 2f
                 val sw = 2.dp.toPx()
+                if (isActive) {
+                    // Защищено: галочка вместо power-глифа — явный сигнал «готово»,
+                    // как в макете (i-check), а не просто перекрашенный power-символ.
+                    val p1 = Offset(iconLeft + iconSize * 0.22f, iconTop + iconSize * 0.52f)
+                    val p2 = Offset(iconLeft + iconSize * 0.42f, iconTop + iconSize * 0.72f)
+                    val p3 = Offset(iconLeft + iconSize * 0.80f, iconTop + iconSize * 0.30f)
+                    drawLine(ringColor, p1, p2, sw, StrokeCap.Round)
+                    drawLine(ringColor, p2, p3, sw, StrokeCap.Round)
+                    return@drawBehind
+                }
                 drawLine(
                     ringColor,
                     Offset(cx, iconTop),
@@ -1715,6 +1793,56 @@ private fun StageChip(label: String, done: Boolean) {
                 color = if (done) SkyflowColors.TextPrimary else SkyflowColors.TextMuted,
             )
         }
+    }
+}
+
+/**
+ * Компактный ряд метрик активного подключения (маскировка): таймер сессии,
+ * скорость загрузки/отдачи — вместо дублирующей карточки «Защищённый туннель».
+ */
+@Composable
+private fun ConnectionMetricsChips(elapsedSec: Long, downSpeedMbs: Float, upSpeedMbs: Float) {
+    val h = elapsedSec / 3600
+    val m = (elapsedSec % 3600) / 60
+    val s = elapsedSec % 60
+    val timeText = if (h > 0) "%02d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        MetricChip {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(SkyflowColors.Connected),
+            )
+            Text(timeText, fontSize = readableSp(11f), color = SkyflowColors.TextPrimary)
+        }
+        MetricChip {
+            Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = SkyflowColors.TextMuted, modifier = Modifier.size(11.dp))
+            Text("%.1f МБ/с".format(downSpeedMbs), fontSize = readableSp(11f), color = SkyflowColors.TextPrimary)
+        }
+        MetricChip {
+            Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = SkyflowColors.TextMuted, modifier = Modifier.size(11.dp))
+            Text("%.1f МБ/с".format(upSpeedMbs), fontSize = readableSp(11f), color = SkyflowColors.TextPrimary)
+        }
+    }
+}
+
+@Composable
+private fun MetricChip(content: @Composable RowScope.() -> Unit) {
+    Surface(
+        shape  = SkyflowShapes.Chip,
+        color  = SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            content = content,
+        )
     }
 }
 

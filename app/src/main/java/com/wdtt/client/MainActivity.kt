@@ -56,7 +56,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import com.wdtt.client.ui.AppUpdateDialog
 import com.wdtt.client.ui.AdaptiveContentHost
-import com.wdtt.client.ui.FloatingToolbar
 import com.wdtt.client.ui.LogsTab
 import com.wdtt.client.ui.OnboardingScreen
 import com.wdtt.client.ui.SettingsHubTab
@@ -364,12 +363,20 @@ fun MainScreen(
                 ) { tab ->
                     AdaptiveContentHost {
                         when (tab) {
-                            0 -> TunnelTab()
+                            0 -> TunnelTab(onOpenSettings = { selectedTab = 4 })
                             3 -> LogsTab()
-                            4 -> SettingsHubTab(onUpdateFound = { release ->
-                                pendingRelease = release
-                            })
-                            else -> TunnelTab()
+                            4 -> SettingsHubTab(
+                                themeMode = themeMode,
+                                onThemeChange = onThemeChange,
+                                activeProfile = activeProfile,
+                                onActiveProfileChange = { profile ->
+                                    scope.launch { settingsStore.saveActiveProfile(profile) }
+                                },
+                                onUpdateFound = { release ->
+                                    pendingRelease = release
+                                },
+                            )
+                            else -> TunnelTab(onOpenSettings = { selectedTab = 4 })
                         }
                     }
                 }
@@ -396,16 +403,6 @@ fun MainScreen(
                 }
             }
         }
-
-        // Floating theme toolbar overlay
-        FloatingToolbar(
-            activeProfile = activeProfile,
-            onActiveProfileChange = { profile ->
-                scope.launch { settingsStore.saveActiveProfile(profile) }
-            },
-            currentTheme = themeMode,
-            onThemeChange = onThemeChange
-        )
     }
 
     pendingRelease?.let { release ->

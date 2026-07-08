@@ -39,13 +39,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * «Настройки» — 3-я вкладка нижней навигации (была «Инфо»). Собирает под собой
- * то, что раньше висело отдельными вкладками верхнего уровня («Исключения»),
- * плюс «О приложении», чтобы навигация выглядела как в макете: 3 понятные
- * вкладки (Главная/Активность/Настройки), а не 4 с профильной «Исключ.».
+ * «Настройки» — 3-я вкладка нижней навигации (была «Инфо»). Единственный вход
+ * в настройки: собирает то, что раньше было отдельной вкладкой верхнего уровня
+ * («Исключения»), плюс «О приложении», плюс профиль/тему — раньше это была
+ * отдельная перетаскиваемая плавающая кнопка (FloatingToolbar), которая
+ * наезжала на новый верх главного экрана и дублировала вход в настройки.
  */
 @Composable
-fun SettingsHubTab(onUpdateFound: (com.wdtt.client.AppReleaseInfo) -> Unit = {}) {
+fun SettingsHubTab(
+    themeMode: String = "system",
+    onThemeChange: (String) -> Unit = {},
+    activeProfile: Int = 0,
+    onActiveProfileChange: (Int) -> Unit = {},
+    onUpdateFound: (com.wdtt.client.AppReleaseInfo) -> Unit = {},
+) {
     var openScreen by rememberSaveable { mutableStateOf<String?>(null) }
 
     when (openScreen) {
@@ -80,6 +87,33 @@ fun SettingsHubTab(onUpdateFound: (com.wdtt.client.AppReleaseInfo) -> Unit = {})
                 )
                 Spacer(Modifier.height(20.dp))
 
+                SettingsSectionLabel("Профиль")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf(0, 1, 2).forEach { profile ->
+                        SegmentOption(
+                            label = "Профиль ${profile + 1}",
+                            selected = profile == activeProfile,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onActiveProfileChange(profile) },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(18.dp))
+                SettingsSectionLabel("Тема")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SegmentOption("Системная", themeMode == "system", Modifier.weight(1f)) { onThemeChange("system") }
+                    SegmentOption("Светлая", themeMode == "light", Modifier.weight(1f)) { onThemeChange("light") }
+                    SegmentOption("Тёмная", themeMode == "dark", Modifier.weight(1f)) { onThemeChange("dark") }
+                }
+
+                Spacer(Modifier.height(20.dp))
                 SettingsRow(
                     icon = Icons.Filled.FilterList,
                     title = "Исключения приложений",
@@ -94,6 +128,47 @@ fun SettingsHubTab(onUpdateFound: (com.wdtt.client.AppReleaseInfo) -> Unit = {})
                     onClick = { openScreen = "info" },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSectionLabel(text: String) {
+    Text(
+        text,
+        fontFamily = interFontFamily,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 12.sp,
+        color = SkyflowColors.TextMuted,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun SegmentOption(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = SkyflowShapes.Chip,
+        color = if (selected) SkyflowColors.Accent else SkyflowColors.GlassSurface,
+        border = SkyflowBorders.Glass,
+    ) {
+        Box(
+            modifier = Modifier.padding(vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                label,
+                fontFamily = interFontFamily,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                fontSize = 12.sp,
+                color = if (selected) SkyflowColors.OnAccent else SkyflowColors.TextSecondary,
+                maxLines = 1,
+            )
         }
     }
 }
