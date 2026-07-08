@@ -19,8 +19,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
 import com.wdtt.client.ui.SkyflowColors
@@ -51,6 +54,14 @@ private val CAPTCHA_RETRY_DELAYS_MS = longArrayOf(500L, 1_000L, 2_000L)
 // Максимум ожидания прохождения капчи в модалке. Если за это время не решена —
 // не морозим Go-солвер на 3 минуты, а сигналим TunnelManager (перезапуск/отказ).
 private const val CAPTCHA_MODAL_TIMEOUT_MS = 100_000L
+
+// Пост-решение: короткая переходная анимация «Проверяю…» → «Пройдено» перед тем,
+// как реально сообщить TunnelManager (сам вызов onCaptchaSolved не задерживается
+// по функциональности — только визуальное состояние листа).
+private const val CAPTCHA_VERIFYING_DELAY_MS = 550L
+private const val CAPTCHA_DONE_DISPLAY_MS = 900L
+
+private enum class CaptchaUiState { WAITING, VERIFYING, DONE }
 
 private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
@@ -130,6 +141,27 @@ fun CaptchaModal(
     var loadError by remember { mutableStateOf<String?>(null) }
     var retryAttempt by remember { mutableIntStateOf(0) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var captchaState by remember { mutableStateOf(CaptchaUiState.WAITING) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // Реальный сигнал решения капчи уже приходит из WebView (JS-интерфейс или
+    // URL-перехват) — здесь только визуальная последовательность «Проверяю…» →
+    // «Пройдено» перед вызовом настоящего onCaptchaSolved(). Идемпотентно:
+    // повторный вызов, пока уже не WAITING, игнорируется.
+    fun handleCaptchaSolved() {
+        if (captchaState != CaptchaUiState.WAITING) return
+        captchaState = CaptchaUiState.VERIFYING
+        scope.launch {
+            kotlinx.coroutines.delay(CAPTCHA_VERIFYING_DELAY_MS)
+            captchaState = CaptchaUiState.DONE
+            kotlinx.coroutines.delay(CAPTCHA_DONE_DISPLAY_MS)
+            onCaptchaSolved()
+        }
+    }
+
+    LaunchedEffect(isVisible) {
+        if (!isVisible) captchaState = CaptchaUiState.WAITING
+    }
 
     // Анти-зависание: пока модалка видима, ведём таймер. Если капча не решена за
     // CAPTCHA_MODAL_TIMEOUT_MS, сообщаем TunnelManager (он перезапустит транспорт
@@ -229,10 +261,20 @@ fun CaptchaModal(
                         .padding(horizontal = 20.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Status badge
-                    val badgeColor = if (isLoading) SkyflowColors.Connecting
-                        else if (loadError != null) SkyflowColors.ErrorColor
-                        else SkyflowColors.Connected
+                    // Status badge — три состояния листа: ждём вас / проверяю / пройдено.
+                    val badgeColor = when {
+                        captchaState == CaptchaUiState.DONE -> SkyflowColors.Connected
+                        captchaState == CaptchaUiState.VERIFYING -> SkyflowColors.Connecting
+                        isLoading -> SkyflowColors.Connecting
+                        loadError != null -> SkyflowColors.ErrorColor
+                        else -> SkyflowColors.AccentLight
+                    }
+                    val badgeIcon = when {
+                        captchaState == CaptchaUiState.DONE -> Icons.Default.CheckCircle
+                        captchaState == CaptchaUiState.VERIFYING -> Icons.Default.VerifiedUser
+                        loadError != null -> Icons.Default.VerifiedUser
+                        else -> Icons.Default.SmartToy
+                    }
                     Box(
                         modifier = Modifier
                             .size(34.dp)
@@ -241,7 +283,7 @@ fun CaptchaModal(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            Icons.Default.VerifiedUser,
+                            badgeIcon,
                             contentDescription = null,
                             tint = badgeColor,
                             modifier = Modifier.size(17.dp),
@@ -250,7 +292,11 @@ fun CaptchaModal(
                     Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Быстрая проверка",
+                            when (captchaState) {
+                                CaptchaUiState.VERIFYING -> "Проверяю…"
+                                CaptchaUiState.DONE -> "Готово"
+                                CaptchaUiState.WAITING -> "Я не робот"
+                            },
                             style = MaterialTheme.typography.titleSmall,
                             fontFamily = displayFontFamily,
                             fontWeight = FontWeight.SemiBold,
@@ -258,10 +304,12 @@ fun CaptchaModal(
                         )
                         Text(
                             when {
+                                captchaState == CaptchaUiState.VERIFYING -> "Секунду, проверяем ответ"
+                                captchaState == CaptchaUiState.DONE -> "Проверка пройдена, продолжаем"
                                 isLoading && loadError != null -> loadError!!
                                 isLoading -> "Загрузка капчи…"
                                 loadError != null -> loadError!!
-                                else -> "VK просит подтвердить, что вы не робот"
+                                else -> "Нажмите чекбокс ниже — вручную, сами"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = SkyflowColors.TextMuted,
@@ -269,8 +317,8 @@ fun CaptchaModal(
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
-                    // Retry button (shown on error)
-                    if (loadError != null && !isLoading) {
+                    // Retry button (shown on error, only while still waiting)
+                    if (loadError != null && !isLoading && captchaState == CaptchaUiState.WAITING) {
                         IconButton(
                             onClick = {
                                 retryAttempt = 0
@@ -307,26 +355,28 @@ fun CaptchaModal(
                     color = SkyflowColors.Border.copy(alpha = 0.5f)
                 )
 
-                // ── Таймаут + запасной способ ────────────────────────────────
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Автопроверка · ${secondsLeft}с",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = SkyflowColors.TextMuted,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        "Другой способ",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = SkyflowColors.AccentLight,
-                        modifier = Modifier.clickable { TunnelManager.onCaptchaTimeout() },
-                    )
+                // ── Таймаут + запасной способ (только пока реально ждём) ────────
+                if (captchaState == CaptchaUiState.WAITING) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Тихий таймаут · ${secondsLeft}с",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SkyflowColors.TextMuted,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "Другой способ",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SkyflowColors.AccentLight,
+                            modifier = Modifier.clickable { TunnelManager.onCaptchaTimeout() },
+                        )
+                    }
                 }
 
                 // ── WebView area ──────────────────────────────────────────────
@@ -375,7 +425,7 @@ fun CaptchaModal(
 
                                     @android.webkit.JavascriptInterface
                                     fun onCaptchaDone() {
-                                        mainHandler.post { onCaptchaSolved() }
+                                        mainHandler.post { handleCaptchaSolved() }
                                     }
                                 }, "WdttCaptchaHost")
 
@@ -386,7 +436,7 @@ fun CaptchaModal(
                                     ): WebResourceResponse? {
                                         val url = request?.url?.toString() ?: ""
                                         if (url.contains("local-captcha-result")) {
-                                            mainHandler.post { onCaptchaSolved() }
+                                            mainHandler.post { handleCaptchaSolved() }
                                         }
                                         return super.shouldInterceptRequest(view, request)
                                     }
@@ -399,7 +449,7 @@ fun CaptchaModal(
                                             loadError = null
                                         }
                                         if (url?.contains("local-captcha-result") == true) {
-                                            mainHandler.post { onCaptchaSolved() }
+                                            mainHandler.post { handleCaptchaSolved() }
                                         }
                                     }
 
