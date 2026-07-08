@@ -929,7 +929,7 @@ fun TunnelTab() {
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Хеш:", fontSize = readableSp(12f), color = SkyflowColors.TextSecondary)
+                                    Text("Код:", fontSize = readableSp(12f), color = SkyflowColors.TextSecondary)
                                     Text(
                                         parsedHash,
                                         fontSize = readableSp(12f),
@@ -1262,11 +1262,11 @@ private fun TunnelModeSwitch(
 ) {
     val isSpeed = selectedMode == "speed"
     val autoHint = when (networkTransport) {
-        NetworkTransport.WIFI -> "Wi‑Fi → скоростной"
-        NetworkTransport.CELLULAR -> "LTE → белый список"
-        NetworkTransport.UNKNOWN -> "Wi‑Fi → скоростной, LTE → белый список"
+        NetworkTransport.WIFI -> "Wi‑Fi → скорость"
+        NetworkTransport.CELLULAR -> "LTE → маскировка"
+        NetworkTransport.UNKNOWN -> "Wi‑Fi → скорость, LTE → маскировка"
     }
-    val currentModeLabel = if (isSpeed) "⚡ Скоростной" else "☁ Белый список"
+    val currentModeLabel = if (isSpeed) "Скорость" else "Маскировка"
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(250),
@@ -1390,8 +1390,8 @@ private fun TunnelModeSwitch(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         TunnelModeOption(
-                            label = "☁ Белый список",
-                            subtitle = "VK/TURN → WG",
+                            label = "Маскировка",
+                            subtitle = "Незаметно, обходит блокировки",
                             selected = !isSpeed,
                             enabled = enabled,
                             accentColor = SkyflowColors.AccentLight,
@@ -1399,8 +1399,8 @@ private fun TunnelModeSwitch(
                             onClick = { onModeChange("whitelist") }
                         )
                         TunnelModeOption(
-                            label = "⚡ Скоростной",
-                            subtitle = "WG → VPS",
+                            label = "Скорость",
+                            subtitle = "Максимально быстро",
                             selected = isSpeed,
                             enabled = enabled,
                             accentColor = SkyflowColors.Connected,
@@ -1605,13 +1605,13 @@ private fun StatusLabel(
     }
     val text = when {
         !tunnelRunning -> "Отключено"
-        isConnecting -> "Подключение..."
+        isConnecting -> "Подключаюсь…"
         else -> {
             val h = elapsedSec / 3600
             val m = (elapsedSec % 3600) / 60
             val s = elapsedSec % 60
-            if (h > 0) "Подключено · %02d:%02d:%02d".format(h, m, s)
-            else "Подключено · %02d:%02d".format(m, s)
+            if (h > 0) "Защищено · %02d:%02d:%02d".format(h, m, s)
+            else "Защищено · %02d:%02d".format(m, s)
         }
     }
     Column(
