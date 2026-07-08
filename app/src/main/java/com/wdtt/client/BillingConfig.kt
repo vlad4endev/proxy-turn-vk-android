@@ -33,8 +33,18 @@ object BillingConfig {
      * Общая триал-подписка 3X-UI для режима «Скорость» на время триала
      * (HTTP sub-URL вида {XUI_SUB_BASE_URL}/{subId}). Пусто = в триале доступна
      * только «Маскировка», «Скорость» открывается после покупки.
+     *
+     * Автозагрузка серверов по этой ссылке — в MainActivity.kt при старте
+     * триала (см. seedTrialDefaults), если у пользователя ещё нет своих серверов.
      */
-    const val TRIAL_SUB_URL: String = ""
+    const val TRIAL_SUB_URL: String = "https://sub.skypath.fun:8671/vk098/a0q0bvswosvk134w"
+
+    /**
+     * Общая ссылка-звонок VK для режима «Маскировка» на время триала — чтобы
+     * маскировка работала сразу, без создания/вставки своей ссылки. Подставляется
+     * только если у пользователя ещё нет сохранённой ссылки (см. seedTrialDefaults).
+     */
+    const val TRIAL_VK_CALL_LINK: String = "https://vk.com/call/join/Zt1oN1Nxuw0Q28CVNrGeAdcrVEEtdllXGvfcYEMMFPc"
 
     val isBackendConfigured: Boolean get() = BACKEND_BASE_URL.isNotBlank()
     val isTrialSpeedAvailable: Boolean get() = TRIAL_SUB_URL.isNotBlank()

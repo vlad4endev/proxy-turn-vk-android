@@ -66,6 +66,7 @@ import com.wdtt.client.ui.ResponsiveLayout
 import com.wdtt.client.ui.SkyflowColors
 import com.wdtt.client.ui.SkyflowShapes
 import com.wdtt.client.ui.TunnelTab
+import com.wdtt.client.xray.SubscriptionParser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
@@ -154,6 +155,30 @@ class MainActivity : ComponentActivity() {
                                 if (settingsStore.getSubExpireAt() <= 0L) {
                                     AccessManager(settingsStore)
                                         .ensureTrialStarted(System.currentTimeMillis() / 1000L)
+
+                                    // Пробный период: подставляем общие триал-ресурсы, но
+                                    // только если у пользователя ещё нет своих — не перетираем
+                                    // уже настроенную ссылку/подписку.
+                                    if (settingsStore.wdttLink.first().isBlank() &&
+                                        BillingConfig.TRIAL_VK_CALL_LINK.isNotBlank()
+                                    ) {
+                                        settingsStore.saveWdttLink(BillingConfig.TRIAL_VK_CALL_LINK)
+                                    }
+                                    if (settingsStore.loadServers().isEmpty() &&
+                                        BillingConfig.TRIAL_SUB_URL.isNotBlank()
+                                    ) {
+                                        try {
+                                            val result = SubscriptionParser.fetchSubscription(BillingConfig.TRIAL_SUB_URL)
+                                            if (result.servers.isNotEmpty()) {
+                                                SubscriptionLinker.saveSubscription(
+                                                    settingsStore, BillingConfig.TRIAL_SUB_URL, result
+                                                )
+                                            }
+                                        } catch (_: Exception) {
+                                            // Нет сети на первом запуске — не блокируем вход,
+                                            // «Скорость» останется недоступна до следующего раза.
+                                        }
+                                    }
                                 }
                                 if (!subscriptionSetupDone) settingsStore.setSubscriptionSetupDone()
                             }
